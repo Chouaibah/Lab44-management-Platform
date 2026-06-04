@@ -1,0 +1,38 @@
+version: "3.8"
+services:
+  db:
+    container_name: post_lab44
+    image: postgres:latest
+    restart: always
+    environment:
+      POSTGRES_USER: lab44
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: lab44
+    ports:
+      - "5111:5432"
+    volumes:
+      - postgres_data:/var/lib/post_lab/data
+    shm_size: 128mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lab44 -d lab44 -h localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  app:
+    container_name: web-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "5112:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://lab44:password@post_lab44:5432/lab44
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  postgres_data:

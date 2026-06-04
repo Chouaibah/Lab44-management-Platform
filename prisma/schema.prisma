@@ -1,0 +1,479 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Student {
+  id                Int       @id @default(autoincrement())
+  firstName         String    @map("first_name")
+  lastName          String    @map("last_name")
+  studentId         String    @unique @map("student_id")
+  password          String?   @map("password")
+  securityQuestion  String?   @map("security_question")
+  securityAnswer    String?   @map("security_answer")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  notes             String?
+  grades            Grade[]
+  vmRequests        VMRequest[]
+  attendance        Attendance[]
+  labs              StudentLab[]
+  sousGroupeMembers SousGroupeMember[]
+  binomeAsStudent1  Binome[] @relation("BinomeStudent1")
+  binomeAsStudent2  Binome[] @relation("BinomeStudent2")
+  announcementReactions AnnouncementReaction[]
+  examAttempts          ExamAttempt[]
+
+  @@map("students")
+}
+
+model GradeColumn {
+  id        Int      @id @default(autoincrement())
+  name      String
+  weight    Float    @default(1.0) @map("weight")
+  labId     Int      @map("lab_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  grades    Grade[]
+  lab       Lab      @relation(fields: [labId], references: [id], onDelete: Cascade)
+
+  @@unique([name, labId])
+  @@index([labId])
+  @@map("grade_columns")
+}
+
+model Grade {
+  studentId Int     @map("student_id")
+  columnId  Int     @map("column_id")
+  value     Float?
+
+  student Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  column  GradeColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
+
+  @@id([studentId, columnId])
+  @@index([columnId])
+  @@map("grades")
+}
+
+model Setting {
+  key   String @id
+  value String
+
+  @@map("settings")
+}
+
+model Lab {
+  id             Int            @id @default(autoincrement())
+  name           String
+  description    String?
+  password       String?
+  level          String?
+  autoApprove    Boolean        @default(false) @map("auto_approve")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  studentLabs    StudentLab[]
+  instructors    Instructor[]
+  instructorLabs InstructorLab[]
+  gradeColumns   GradeColumn[]
+  documents      LabDocument[]
+  announcements  Announcement[]
+  vmRequests     VMRequest[]
+  sousGroupes    SousGroupe[]
+  resourceLinks  ResourceLink[]
+  exams          Exam[]
+  attendance     Attendance[]
+
+  @@map("labs")
+}
+
+model Instructor {
+  id                Int       @id @default(autoincrement())
+  username          String    @unique
+  password          String
+  displayName       String    @map("display_name")
+  email             String?
+  labId             Int       @map("lab_id")
+  securityQuestion  String?   @map("security_question")
+  securityAnswer    String?   @map("security_answer")
+  resetToken        String?   @map("reset_token")
+  resetTokenExpiry  DateTime? @map("reset_token_expiry")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  showGrades        Boolean   @default(true) @map("show_grades")
+  lab               Lab       @relation(fields: [labId], references: [id], onDelete: Cascade)
+  exams             Exam[]
+  instructorLabs    InstructorLab[]
+
+  @@index([labId])
+  @@map("instructors")
+}
+
+model StudentLab {
+  studentId Int      @map("student_id")
+  labId     Int      @map("lab_id")
+  joinedAt  DateTime @default(now()) @map("joined_at")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  lab     Lab     @relation(fields: [labId], references: [id], onDelete: Cascade)
+
+  @@id([studentId, labId])
+  @@index([labId])
+  @@map("student_labs")
+}
+
+model InstructorLab {
+  instructorId Int      @map("instructor_id")
+  labId        Int      @map("lab_id")
+  assignedAt   DateTime @default(now()) @map("assigned_at")
+
+  instructor Instructor @relation(fields: [instructorId], references: [id], onDelete: Cascade)
+  lab        Lab        @relation(fields: [labId], references: [id], onDelete: Cascade)
+
+  @@id([instructorId, labId])
+  @@index([labId])
+  @@index([instructorId])
+  @@map("instructor_labs")
+}
+
+model VMRequest {
+  id               Int       @id @default(autoincrement())
+  studentDbId      Int       @map("student_db_id")
+  labId            Int?      @map("lab_id")
+  studentName      String    @map("student_name")
+  studentId        String    @map("student_id")
+  templateUuid     String?   @map("template_uuid")
+  templateName     String?   @map("template_name")
+  status           String    @default("pending")
+  note             String?
+  vmUuid           String?   @map("vm_uuid")
+  vmName           String?   @map("vm_name")
+  vmIp             String?   @map("vm_ip")
+  accessProtocol   String?   @map("access_protocol")
+  guacUsername     String?   @map("guac_username")
+  guacPassword     String?   @map("guac_password")
+  guacConnectionId String?   @map("guac_connection_id")
+  guacDataSource   String?   @map("guac_data_source")
+  guacProtocol     String?   @map("guac_protocol")
+  requestedAt      DateTime  @default(now()) @map("requested_at")
+  reviewedAt       DateTime? @map("reviewed_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  student Student @relation(fields: [studentDbId], references: [id], onDelete: Cascade)
+  lab     Lab?    @relation(fields: [labId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([studentDbId])
+  @@index([labId])
+  @@map("vm_requests")
+}
+
+model Announcement {
+  id         Int       @id @default(autoincrement())
+  title      String
+  content    String
+  author     String    @default("Admin")
+  pinned     Boolean   @default(false)
+  isArchived Boolean @default(false) @map("isArchived")
+  labId      Int       @map("lab_id")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  lab       Lab       @relation(fields: [labId], references: [id], onDelete: Cascade)
+  reactions AnnouncementReaction[]
+
+  @@index([labId])
+  @@index([pinned])
+  @@map("announcements")
+
+}
+
+model Attendance {
+  id        Int     @id @default(autoincrement())
+  studentId Int     @map("student_id")
+  labId     Int     @map("lab_id")
+  date      String
+  status    String  @default("present")
+  note      String?
+  markedBy  Int?    @map("marked_by")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  lab     Lab     @relation(fields: [labId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, date, labId])
+  @@index([date])
+  @@index([labId])
+  @@map("attendance")
+}
+
+model LabDocument {
+  id                Int      @id @default(autoincrement())
+  title             String
+  description       String?
+  filePath          String?  @map("file_path")
+  fileType          String?  @map("file_type")
+  imageUrl          String?  @map("image_url")
+  imageType         String?  @map("image_type")
+  linkUrl           String?  @map("link_url")
+  linkTitle         String?  @map("link_title")
+  labId             Int      @map("lab_id")
+  visibleToStudents Boolean  @default(false) @map("visible_to_students")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  lab Lab @relation(fields: [labId], references: [id], onDelete: Cascade)
+
+  @@index([labId])
+  @@map("lab_documents")
+}
+
+model ActivityLog {
+  id        Int      @id @default(autoincrement())
+  type      String
+  action    String   @default("update")
+  message   String
+  userId    String?  @map("user_id")
+  userRole  String?  @map("user_role")
+  labId     Int?     @map("lab_id")
+  metadata  Json?    // ← now uses native JSON type instead of a plain String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([type])
+  @@map("activity_logs")
+}
+
+model SousGroupe {
+  id        Int      @id @default(autoincrement())
+  name      String
+  labId     Int      @map("lab_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  lab       Lab      @relation(fields: [labId], references: [id], onDelete: Cascade)
+  members   SousGroupeMember[]
+  binomes   Binome[]
+
+  @@index([labId])
+  @@map("sous_groupes")
+}
+
+model SousGroupeMember {
+  id           Int @id @default(autoincrement())
+  sousGroupeId Int @map("sous_groupe_id")
+  studentId    Int @map("student_id")
+
+  sousGroupe SousGroupe @relation(fields: [sousGroupeId], references: [id], onDelete: Cascade)
+  student    Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([sousGroupeId, studentId])
+  @@index([sousGroupeId])
+  @@index([studentId])
+  @@map("sous_groupe_members")
+}
+
+model Binome {
+  id           Int   @id @default(autoincrement())
+  sousGroupeId Int   @map("sous_groupe_id")
+  student1Id   Int   @map("student_1_id")
+  student2Id   Int?  @map("student_2_id")
+
+  sousGroupe SousGroupe @relation(fields: [sousGroupeId], references: [id], onDelete: Cascade)
+  student1   Student    @relation("BinomeStudent1", fields: [student1Id], references: [id], onDelete: Cascade)
+  student2   Student?   @relation("BinomeStudent2", fields: [student2Id], references: [id], onDelete: SetNull)
+
+  @@index([sousGroupeId])
+  @@map("binomes")
+}
+
+model AnnouncementReaction {
+  id             Int      @id @default(autoincrement())
+  announcementId Int      @map("announcement_id")
+  studentId      Int      @map("student_id")
+  reaction       String   @default("acknowledged")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, studentId])
+  @@index([announcementId])
+  @@map("announcement_reactions")
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  type      String
+  title     String
+  message   String
+  userId    Int      @map("user_id")
+  userRole  String   @default("student") @map("user_role")
+  read      Boolean  @default(false)
+  labId     Int?     @map("lab_id")
+  link      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, userRole])
+  @@index([read])
+  @@map("notifications")
+}
+
+model SessionRecord {
+  id           Int       @id @default(autoincrement())
+  userId       Int       @map("user_id")
+  userRole     String    @map("user_role")
+  userName     String    @map("user_name")
+  tokenJti     String    @unique @map("token_jti")
+  ipAddress    String?   @map("ip_address")
+  userAgent    String?   @map("user_agent")
+  loginAt      DateTime  @default(now()) @map("login_at")
+  lastActiveAt DateTime  @default(now()) @map("last_active_at")
+  logoutAt     DateTime? @map("logout_at")
+  isActive     Boolean   @default(true) @map("is_active")
+
+  @@index([userId, userRole])
+  @@index([isActive])
+  @@map("session_records")
+}
+
+model ResourceLink {
+  id          Int      @id @default(autoincrement())
+  title       String
+  url         String
+  description String?
+  category    String   @default("general")
+  labId       Int      @map("lab_id")
+  addedBy     String?  @map("added_by")
+  order       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  lab Lab @relation(fields: [labId], references: [id], onDelete: Cascade)
+
+  @@index([labId])
+  @@map("resource_links")
+}
+
+model BackupRecord {
+  id        Int      @id @default(autoincrement())
+  filename  String
+  size      Int
+  type      String   @default("manual")
+  status    String   @default("completed")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("backup_records")
+}
+
+model Message {
+  id           Int      @id @default(autoincrement())
+  senderId     Int      @map("sender_id")
+  senderRole   String   @map("sender_role")
+  receiverId   Int      @map("receiver_id")
+  receiverRole String   @map("receiver_role")
+  labId        Int?     @map("lab_id")
+  content      String
+  read         Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([receiverId, receiverRole, read])
+  @@index([senderId, senderRole])
+  @@index([labId])
+  @@map("messages")
+}
+
+model Exam {
+  id              Int       @id @default(autoincrement())
+  title           String
+  description     String?
+  labId           Int       @map("lab_id")
+  instructorId    Int       @map("instructor_id")
+  status          String    @default("draft")
+  durationMinutes Int       @default(30) @map("duration_minutes")
+  shuffleQuestions Boolean   @default(false) @map("shuffle_questions")
+  showResults     String    @default("immediate") @map("show_results")
+  maxAttempts     Int       @default(1) @map("max_attempts")
+  passingScore    Float?    @map("passing_score")
+  sousGroupeId    Int?      @map("sous_groupe_id")
+  publishedAt     DateTime? @map("published_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  lab             Lab       @relation(fields: [labId], references: [id], onDelete: Cascade)
+  instructor      Instructor @relation(fields: [instructorId], references: [id], onDelete: Cascade)
+  questions       ExamQuestion[]
+  attempts        ExamAttempt[]
+
+  @@index([labId])
+  @@index([instructorId])
+  @@map("exams")
+}
+
+model ExamQuestion {
+  id            Int       @id @default(autoincrement())
+  examId        Int       @map("exam_id")
+  type          String
+  text          String
+  options       String?   // JSON string in SQLite
+  correctAnswer String?   @map("correct_answer")
+  points        Float     @default(1.0)
+  order         Int       @default(0)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  exam          Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  answers       ExamAnswer[]
+
+  @@index([examId])
+  @@map("exam_questions")
+}
+
+model ExamAttempt {
+  id            Int       @id @default(autoincrement())
+  examId        Int       @map("exam_id")
+  studentId     Int       @map("student_id")
+  attemptNumber Int       @default(1) @map("attempt_number")
+  startedAt     DateTime  @default(now()) @map("started_at")
+  submittedAt   DateTime? @map("submitted_at")
+  timeSpent     Int?      @map("time_spent")
+  score         Float?
+  totalPoints   Float?    @map("total_points")
+  maxPoints     Float?    @map("max_points")
+  passed        Boolean?
+
+  exam          Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student       Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  answers       ExamAnswer[]
+
+  @@unique([examId, studentId, attemptNumber])
+  @@index([examId])
+  @@index([studentId])
+  @@map("exam_attempts")
+}
+
+model ExamAnswer {
+  id           Int       @id @default(autoincrement())
+  attemptId    Int       @map("attempt_id")
+  questionId   Int       @map("question_id")
+  answer       String?
+  pointsEarned Float?    @map("points_earned")
+
+  attempt      ExamAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question     ExamQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@map("exam_answers")
+}
+
+model Level {
+  id        Int      @id @default(autoincrement())
+  year      String
+  specialty String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([year, specialty])
+  @@map("levels")
+}
