@@ -1,3 +1,4 @@
+<img width="5760" height="3240" alt="Ins_VM_Monitor" src="https://github.com/user-attachments/assets/e776b2b8-54d8-477d-87d7-8b07eee59613" />
 # Lab44 Management Platform
 
 A Next.js + Tailwind + Prisma management platform for labs, instructors, and students.
@@ -102,6 +103,11 @@ Production build steps (what the repo does when preparing a standalone server):
 ## Screeshot 
 
 <img width="1920" height="968" alt="lab441" src="https://github.com/user-attachments/assets/2cf85771-b4d3-4288-a224-b3d617d4e428" />
+<img width="5760" height="3240" alt="Ins_VM_Monitor" src="https://github.com/user-attachments/assets/8bcd8bf3-43d4-475f-8da8-192c1b2b7944" />
+<img width="4608" height="2592" alt="Ins_Attendece" src="https://github.com/user-attachments/assets/d1a7a64a-4036-4530-8ad9-55a29c300079" />
+<img width="4608" height="2592" alt="Stu_VM" src="https://github.com/user-attachments/assets/dbefcea2-6abf-4df4-b92a-93cecd0a7d58" />
+<img width="5760" height="3240" alt="Ins_Message" src="https://github.com/user-attachments/assets/78daecae-a629-496a-8df7-7ad4de9ddfb3" />
+<img width="4608" height="2592" alt="Ins_Students" src="https://github.com/user-attachments/assets/08f710c1-d7df-4e66-b21a-1f8164c91994" />
 
 
 
