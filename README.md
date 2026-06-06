@@ -1,4 +1,3 @@
-<img width="5760" height="3240" alt="Ins_VM_Monitor" src="https://github.com/user-attachments/assets/e776b2b8-54d8-477d-87d7-8b07eee59613" />
 # Lab44 Management Platform
 
 A Next.js + Tailwind + Prisma management platform for labs, instructors, and students.
