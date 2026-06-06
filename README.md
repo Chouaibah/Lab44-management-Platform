@@ -99,6 +99,13 @@ Production build steps (what the repo does when preparing a standalone server):
 - The Prisma schema uses `postgresql` provider and expects `DATABASE_URL` env var.
 - Many features rely on additional services (Guacamole, XCP-NG, vaults). See `src/lib` for integration points.
 
+## Screeshot 
+
+<img width="1920" height="968" alt="lab441" src="https://github.com/user-attachments/assets/2cf85771-b4d3-4288-a224-b3d617d4e428" />
+
+
+
+
 ## License
 
-See the repository `LICENSE` file.
+all copyrights reserved.
