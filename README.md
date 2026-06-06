@@ -100,7 +100,7 @@ Production build steps (what the repo does when preparing a standalone server):
 - The Prisma schema uses `postgresql` provider and expects `DATABASE_URL` env var.
 - Many features rely on additional services (Guacamole, XCP-NG, vaults). See `src/lib` for integration points.
 
-## Screeshot 
+## Screeshoot 
 
 <img width="5760" height="3240" alt="Ins_VM_Monitor" src="https://github.com/user-attachments/assets/8bcd8bf3-43d4-475f-8da8-192c1b2b7944" />
 <img width="4608" height="2592" alt="Ins_Attendece" src="https://github.com/user-attachments/assets/d1a7a64a-4036-4530-8ad9-55a29c300079" />
