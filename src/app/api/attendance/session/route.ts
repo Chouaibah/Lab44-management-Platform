@@ -180,6 +180,12 @@ export async function POST(request: Request) {
 
       const sessionDate = dateSetting?.value;
 
+      // Check if session was restricted to a specific sous-groupe
+      const groupSetting = await db.setting.findUnique({
+        where: { key: `attendance_session_group_${labIdNum}` },
+      });
+      const sessionGroupId = groupSetting?.value ? parseInt(groupSetting.value) : null;
+
       if (sessionDate) {
         // Get all students in this lab
         const labStudents = await db.studentLab.findMany({
@@ -187,7 +193,17 @@ export async function POST(request: Request) {
           select: { studentId: true },
         });
 
-        const studentIds = labStudents.map((sl) => sl.studentId);
+        let studentIds = labStudents.map((sl) => sl.studentId);
+
+        // If session was restricted to a specific sous-groupe, only target its members
+        if (sessionGroupId) {
+          const groupMembers = await db.sousGroupeMember.findMany({
+            where: { sousGroupeId: sessionGroupId },
+            select: { studentId: true },
+          });
+          const groupMemberIds = new Set(groupMembers.map((m) => m.studentId));
+          studentIds = studentIds.filter((id) => groupMemberIds.has(id));
+        }
 
         // Find which students already have attendance for this date AND lab
         const existingAttendance = await db.attendance.findMany({

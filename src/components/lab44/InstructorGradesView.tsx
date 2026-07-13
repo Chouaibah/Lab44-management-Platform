@@ -464,7 +464,7 @@ export default function InstructorGradesView() {
           const grade = getStudentGrade(student.id, col.id);
           return grade !== null ? String(grade) : '';
         }),
-        avg !== null ? avg.toFixed(2) : '',
+        simpleAvg !== null ? simpleAvg.toFixed(2) : '',
       ];
     });
     const csvContent = [headers, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');

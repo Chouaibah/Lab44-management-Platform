@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { hash } from "bcryptjs";
 import { getSession, hashPassword } from "@/lib/auth";
 import { logAudit } from "@/lib/audit-log";
+import {
+  createOwnCloudUser,
+  storeInstructorOwnCloudPassword,
+} from "@/lib/owncloud";
 
 export async function GET(request: Request) {
   try {
@@ -131,6 +135,28 @@ export async function POST(request: Request) {
       userRole: "admin",
       labId: primaryLabId,
     });
+
+    // Create OwnCloud account for instructor (non-blocking)
+    // The OwnCloud account is created with the SAME password the admin chose
+    // for the platform, so the instructor can use one set of credentials.
+    // We also store it encrypted so we can later show it to the instructor
+    // via the provision endpoint (OwnCloud doesn't support URL auto-login).
+    const ocResult = await createOwnCloudUser(
+      username.trim(),
+      password,
+      displayName.trim(),
+      email?.trim() || undefined
+    );
+    if (!ocResult.ok) {
+      console.warn(`OwnCloud account creation for instructor "${username}" failed: ${ocResult.error}`);
+    } else {
+      // Only store the password if the OwnCloud account was created successfully.
+      try {
+        await storeInstructorOwnCloudPassword(username.trim(), password);
+      } catch (storeErr) {
+        console.warn(`Failed to store OwnCloud password for "${username}":`, storeErr);
+      }
+    }
 
     return NextResponse.json({
       ok: true,

@@ -28,7 +28,7 @@ import {
   CalendarCheck, RefreshCw, Users, Calendar, Save,
   CheckCircle2, XCircle, Clock,
   UserCheck, UserX, DoorOpen, DoorClosed, Radio,
-  Filter, AlertTriangle,
+  Filter, AlertTriangle, Download,
 } from 'lucide-react';
 
 import {
@@ -69,8 +69,8 @@ export default function InstructorAttendanceView() {
   );
 
   const labSousGroupes = useMemo(() =>
-    sousGroupes.filter(sg => sg.labId === activeLabId),
-    [sousGroupes, activeLabId]
+    sousGroupes,
+    [sousGroupes]
   );
 
   const labColumns = useMemo(() =>
@@ -321,6 +321,40 @@ export default function InstructorAttendanceView() {
     setAttendanceUpdates(newUpdates);
   };
 
+  const handleExportCSV = () => {
+    if (uniqueDates.length === 0 || labStudents.length === 0) {
+      toast.error('No data to export');
+      return;
+    }
+    const headers = ['Student Last Name', 'Student First Name', 'Student ID', 'Group', ...uniqueDates];
+    const rows = labStudents.map(student => {
+      const studentGroup = labSousGroupes.find(sg => sg.members.some(m => m.studentId === student.id));
+      return [
+        student.lastName,
+        student.firstName,
+        student.studentId,
+        studentGroup?.name || '',
+        ...uniqueDates.map(date => {
+          const record = labAttendance.find(a => a.studentId === student.id && a.date === date);
+          return record?.status || '';
+        }),
+      ];
+    });
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `attendance_${instructor?.labName || 'lab'}_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('Attendance history exported to CSV');
+  };
+
   if (!instructor) return null;
 
   if (loading) {
@@ -370,59 +404,31 @@ export default function InstructorAttendanceView() {
 
         {/* ─── Attendance Session Control Panel ─────────────────────────────── */}
         {sessionOpen ? (
-          <Card className="shadow-sm mb-6 overflow-hidden">
-            <CardContent className="p-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <Card className="shadow-sm mb-6">
+            <CardContent className="p-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-900/40">
-                      <Radio className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
-                    </div>
-                    <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" style={{ animationDuration: '1.5s' }} />
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
-                    </span>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-100 dark:bg-cyan-900/30">
+                    <DoorOpen className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base font-bold text-emerald-700 dark:text-emerald-400">Session LIVE</h3>
-                      <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400 dark:border-emerald-800 text-[10px] px-1.5 py-0 animate-pulse">
-                        OPEN
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Date: <span className="font-mono font-medium">{sessionDate}</span> · Students can mark themselves present
+                    <h3 className="text-sm font-semibold">Session Live</h3>
+                    <p className="text-xs text-muted-foreground">
+                      {sessionDate} · {sessionMarkedCount}/{sessionStudents.length} marked
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-right hidden sm:block">
-                    <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                      {sessionMarkedCount}<span className="text-lg text-muted-foreground">/{sessionStudents.length}</span>
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">students marked</p>
-                  </div>
-                  <Button
-                    onClick={() => setConfirmCloseOpen(true)}
-                    disabled={sessionLoading}
-                    variant="destructive"
-                    className="gap-1.5"
-                  >
-                    {sessionLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <DoorClosed className="h-3.5 w-3.5" />}
-                    Close Session
-                  </Button>
-                </div>
+                <Button onClick={() => setConfirmCloseOpen(true)} disabled={sessionLoading} variant="destructive" size="sm" className="gap-1">
+                  {sessionLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <DoorClosed className="h-3.5 w-3.5" />}
+                  Close Session
+                </Button>
               </div>
 
-              {/* Live student status */}
-              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Marked Present */}
-                <div className="p-3 rounded-lg bg-emerald-100/50 dark:bg-emerald-900/20 border border-emerald-200/50 dark:border-emerald-800/50">
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-3 rounded-lg border bg-muted/30">
                   <div className="flex items-center gap-2 mb-2">
-                    <UserCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-                      Marked Present ({sessionMarkedStudents.length})
-                    </span>
+                    <UserCheck className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-xs font-semibold">Marked ({sessionMarkedStudents.length})</span>
                   </div>
                   <div className="space-y-1 max-h-32 overflow-y-auto">
                     {sessionMarkedStudents.length === 0 ? (
@@ -430,7 +436,6 @@ export default function InstructorAttendanceView() {
                     ) : (
                       sessionMarkedStudents.map(s => (
                         <div key={s.id} className="flex items-center gap-2 py-0.5">
-                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
                           <span className="text-xs truncate">{s.lastName} {s.firstName}</span>
                           <span className="text-[10px] text-muted-foreground font-mono ml-auto">{s.studentId}</span>
                         </div>
@@ -439,21 +444,17 @@ export default function InstructorAttendanceView() {
                   </div>
                 </div>
 
-                {/* Pending */}
-                <div className="p-3 rounded-lg bg-amber-100/50 dark:bg-amber-900/20 border border-amber-200/50 dark:border-amber-800/50">
+                <div className="p-3 rounded-lg border bg-muted/30">
                   <div className="flex items-center gap-2 mb-2">
-                    <UserX className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                    <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">
-                      Pending ({sessionPendingStudents.length})
-                    </span>
+                    <UserX className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-xs font-semibold">Pending ({sessionPendingStudents.length})</span>
                   </div>
                   <div className="space-y-1 max-h-32 overflow-y-auto">
                     {sessionPendingStudents.length === 0 ? (
-                      <p className="text-xs text-emerald-600 dark:text-emerald-400 italic">All students marked! ✓</p>
+                      <p className="text-xs text-muted-foreground italic">All students marked!</p>
                     ) : (
                       sessionPendingStudents.map(s => (
                         <div key={s.id} className="flex items-center gap-2 py-0.5">
-                          <Clock className="h-3 w-3 text-amber-500 shrink-0" />
                           <span className="text-xs truncate">{s.lastName} {s.firstName}</span>
                           <span className="text-[10px] text-muted-foreground font-mono ml-auto">{s.studentId}</span>
                         </div>
@@ -463,7 +464,6 @@ export default function InstructorAttendanceView() {
                 </div>
               </div>
 
-              {/* Auto-refresh indicator */}
               <div className="mt-3 flex items-center gap-1.5 text-[10px] text-muted-foreground">
                 <RefreshCw className="h-2.5 w-2.5 animate-spin" style={{ animationDuration: '3s' }} />
                 Auto-refreshing every 5 seconds
@@ -704,10 +704,21 @@ export default function InstructorAttendanceView() {
           : 'No attendance records yet'}
           </CardDescription>
           </div>
-          {uniqueDates.length > 0 && (
+           {uniqueDates.length > 0 && (
+            <div className="flex items-center gap-2">
             <div className="hidden sm:flex items-center gap-3 text-[10px] text-muted-foreground">
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Present</span>
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> Absent</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportCSV}
+              className="gap-1.5"
+            >
+              <Download className="h-3.5 w-3.5" />
+              CSV
+            </Button>
             </div>
           )}
           </div>

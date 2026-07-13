@@ -298,6 +298,8 @@ export async function getTemplates(): Promise<
     name: string;
     desc: string;
     power_state: string;
+    VCPUs_max?: number;
+    memory_static_max?: number;
   }>
 > {
   const vms = await callXAPI("VM.get_all_records", []);
@@ -311,5 +313,38 @@ export async function getTemplates(): Promise<
       name: v.name_label,
       desc: v.name_description || "",
       power_state: v.power_state,
+      VCPUs_max: parseInt(v.VCPUs_max) || undefined,
+      memory_static_max: parseInt(v.memory_static_max) || undefined,
     }));
+}
+
+export async function setVMResources(
+  vmUuid: string,
+  vcpus: number,
+  memoryBytes: number
+): Promise<void> {
+  const vmRef = await callXAPI("VM.get_by_uuid", [vmUuid]);
+  await callXAPI("VM.set_VCPUs_max", [vmRef, String(vcpus)]);
+  await callXAPI("VM.set_VCPUs_at_startup", [vmRef, String(vcpus)]);
+  await callXAPI("VM.set_platform", [vmRef, { "cores-per-socket": String(vcpus) }]);
+  await callXAPI("VM.set_memory_limits", [
+    vmRef,
+    String(memoryBytes),
+    String(memoryBytes),
+    String(memoryBytes),
+    String(memoryBytes),
+  ]);
+}
+
+export async function getHostCapacity(): Promise<{ vcpus: number; ramGB: number }> {
+  const hosts = await callXAPI("host.get_all", []);
+  if (!Array.isArray(hosts) || hosts.length === 0) {
+    return { vcpus: 0, ramGB: 0 };
+  }
+  const hostRef = hosts[0];
+  const record = await callXAPI("host.get_record", [hostRef]);
+  const cpuInfo = record.cpu_info || {};
+  const cpuCount = parseInt(cpuInfo.cpu_count || '0') || 0;
+  const ramBytes = parseInt(record.memory_total || '0') || 0;
+  return { vcpus: cpuCount, ramGB: Math.round(ramBytes / (1024 * 1024 * 1024)) };
 }

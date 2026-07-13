@@ -141,7 +141,7 @@ model InstructorLab {
 
 model VMRequest {
   id               Int       @id @default(autoincrement())
-  studentDbId      Int       @map("student_db_id")
+  studentDbId      Int?      @map("student_db_id")
   labId            Int?      @map("lab_id")
   studentName      String    @map("student_name")
   studentId        String    @map("student_id")
@@ -162,7 +162,7 @@ model VMRequest {
   reviewedAt       DateTime? @map("reviewed_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  student Student @relation(fields: [studentDbId], references: [id], onDelete: Cascade)
+  student Student? @relation(fields: [studentDbId], references: [id], onDelete: SetNull)
   lab     Lab?    @relation(fields: [labId], references: [id], onDelete: SetNull)
 
   @@index([status])
@@ -249,13 +249,16 @@ model SousGroupe {
   id        Int      @id @default(autoincrement())
   name      String
   labId     Int      @map("lab_id")
+  levelId   Int?     @map("level_id")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   lab       Lab      @relation(fields: [labId], references: [id], onDelete: Cascade)
+  level     Level?   @relation(fields: [levelId], references: [id], onDelete: SetNull)
   members   SousGroupeMember[]
   binomes   Binome[]
 
   @@index([labId])
+  @@index([levelId])
   @@map("sous_groupes")
 }
 
@@ -346,6 +349,7 @@ model ResourceLink {
   labId       Int      @map("lab_id")
   addedBy     String?  @map("added_by")
   order       Int      @default(0)
+  hidden      Boolean  @default(false)
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -468,11 +472,12 @@ model ExamAnswer {
 }
 
 model Level {
-  id        Int      @id @default(autoincrement())
-  year      String
-  specialty String
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id          Int          @id @default(autoincrement())
+  year        String
+  specialty   String
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  sousGroupes SousGroupe[]
 
   @@unique([year, specialty])
   @@map("levels")

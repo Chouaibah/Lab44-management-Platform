@@ -29,19 +29,18 @@ export async function GET(request: Request) {
       }
     }
 
-    // Instructors/admins: if a labId is given, also include groups from other labs
-    // at the same level so instructors of the same level share their groups
+    // Instructors/admins: show groups from all labs at the same level
     if (labId && (session.role === "instructor" || session.role === "admin")) {
       const requestedLab = await db.lab.findUnique({
         where: { id: parseInt(labId) },
         select: { level: true },
       });
       if (requestedLab?.level) {
-        const sameLevelLabs = await db.lab.findMany({
-          where: { level: requestedLab.level },
-          select: { id: true },
-        });
-        where.labId = { in: sameLevelLabs.map((l) => l.id) };
+        const levelId = parseInt(requestedLab.level);
+        delete where.labId;
+        where.levelId = levelId;
+      } else {
+        where.labId = parseInt(labId);
       }
     }
 
@@ -66,28 +65,51 @@ export async function GET(request: Request) {
       orderBy: { createdAt: "desc" },
     });
 
+    // For instructors, filter members to only show students enrolled in their labs
+    let instructorStudentIds: Set<number> | null = null;
+    if (session.role === "instructor") {
+      const instructor = await db.instructor.findUnique({ where: { id: session.userId } });
+      if (instructor) {
+        const instructorLabs = await db.instructorLab.findMany({
+          where: { instructorId: instructor.id },
+          select: { labId: true },
+        });
+        const instructorLabIds = [instructor.labId, ...instructorLabs.map(l => l.labId)];
+        const labStudents = await db.studentLab.findMany({
+          where: { labId: { in: instructorLabIds } },
+          select: { studentId: true },
+        });
+        instructorStudentIds = new Set(labStudents.map(sl => sl.studentId));
+      }
+    }
+
     return NextResponse.json({
-      sousGroupes: sousGroupes.map((sg) => ({
-        id: sg.id,
-        name: sg.name,
-        labId: sg.labId,
-        lab: sg.lab,
-        members: sg.members.map((m) => ({
-          id: m.id,
-          studentId: m.studentId,
-          student: m.student,
-        })),
-        binomes: sg.binomes.map((b) => ({
-          id: b.id,
-          sousGroupeId: b.sousGroupeId,
-          student1Id: b.student1Id,
-          student2Id: b.student2Id,
-          student1: b.student1,
-          student2: b.student2,
-        })),
-        createdAt: sg.createdAt.toISOString(),
-        updatedAt: sg.updatedAt.toISOString(),
-      })),
+      sousGroupes: sousGroupes.map((sg) => {
+        const filteredMembers = instructorStudentIds
+          ? sg.members.filter(m => instructorStudentIds.has(m.studentId))
+          : sg.members;
+        return {
+          id: sg.id,
+          name: sg.name,
+          labId: sg.labId,
+          lab: sg.lab,
+          members: filteredMembers.map((m) => ({
+            id: m.id,
+            studentId: m.studentId,
+            student: m.student,
+          })),
+          binomes: sg.binomes.map((b) => ({
+            id: b.id,
+            sousGroupeId: b.sousGroupeId,
+            student1Id: b.student1Id,
+            student2Id: b.student2Id,
+            student1: b.student1,
+            student2: b.student2,
+          })),
+          createdAt: sg.createdAt.toISOString(),
+          updatedAt: sg.updatedAt.toISOString(),
+        };
+      }),
     });
   } catch (error) {
     const err = error as { statusCode?: number; message?: string };
@@ -121,13 +143,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Lab not found." }, { status: 404 });
     }
 
+    // Derive levelId from lab's level
+    const levelId = lab.level ? parseInt(lab.level) : null;
+
     // If instructor, verify they belong to this lab
     if (session.role === "instructor") {
       const instructor = await db.instructor.findUnique({
         where: { id: session.userId },
       });
-      if (instructor && instructor.labId !== parseInt(labId)) {
-        return NextResponse.json({ error: "You can only create sous-groupes in your own lab." }, { status: 403 });
+      if (!instructor) {
+        return NextResponse.json({ error: "Instructor not found." }, { status: 404 });
+      }
+      const instructorLabs = await db.instructorLab.findMany({
+        where: { instructorId: instructor.id },
+        select: { labId: true },
+      });
+      const instructorLabIds = [instructor.labId, ...instructorLabs.map(l => l.labId)];
+      if (!instructorLabIds.includes(parseInt(labId))) {
+        return NextResponse.json({ error: "You can only create groups in your own lab." }, { status: 403 });
       }
     }
 
@@ -135,6 +168,7 @@ export async function POST(request: Request) {
       data: {
         name: name.trim(),
         labId: parseInt(labId),
+        levelId,
       },
       include: {
         members: { include: { student: { select: { id: true, firstName: true, lastName: true, studentId: true } } } },

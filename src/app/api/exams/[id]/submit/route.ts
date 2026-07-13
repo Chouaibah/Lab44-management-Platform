@@ -104,8 +104,8 @@ export async function POST(
       maxPoints = exam.questions.reduce((sum, q) => sum + q.points, 0);
     }
 
-    const score  = maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 10000) / 100 : 0;
-    const passed = exam.passingScore != null ? score >= exam.passingScore : null;
+    const score  = maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 20 * 100) / 100 : 0;
+    const passed = score >= 10;
 
     const attempt = await db.$transaction(async (tx) => {
       return tx.examAttempt.create({

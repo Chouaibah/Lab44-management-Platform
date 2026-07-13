@@ -2,7 +2,6 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  /* config options here */
   turbopack: {
     root: __dirname,
   },
@@ -10,13 +9,7 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  allowedDevOrigins: ['192.168.100.106', 'dash.lab44.live','10.0.0.28'],
 };
-
-
-// next.config.js
-module.exports = {
-  allowedDevOrigins: ['192.168.100.106'],
-}
-
 
 export default nextConfig;

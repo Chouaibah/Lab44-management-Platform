@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callXAPI, getVMIPAddress } from "@/lib/xcp";
+import { callXAPI, getVMIPAddress, setVMResources } from "@/lib/xcp";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 
@@ -31,7 +31,7 @@ export async function POST(
         return NextResponse.json({ error: "You do not have permission to control this VM." }, { status: 403 });
       }
     }
-    const { action, vmName } = await req.json();
+    const { action, vmName, vcpus, memoryMB } = await req.json();
     const vmRef = await callXAPI("VM.get_by_uuid", [uuid]);
 
     let method = "";
@@ -63,6 +63,14 @@ export async function POST(
             return NextResponse.json({ error: "You need to turn OFF the VM first before converting to template." }, { status: 400 });
           }
           return NextResponse.json({ error: `Failed to convert VM: ${err.message || err}` }, { status: 500 });
+        }
+      case "set-resources":
+        try {
+          const memoryBytes = (memoryMB || 1024) * 1024 * 1024;
+          await setVMResources(uuid, vcpus || 1, memoryBytes);
+          return NextResponse.json({ message: "VM resources updated successfully" });
+        } catch (err: any) {
+          return NextResponse.json({ error: `Failed to update VM resources: ${err.message || err}` }, { status: 500 });
         }
       default: return NextResponse.json({ error: "Invalid action" }, { status: 400 });
     }
@@ -100,6 +108,16 @@ export async function POST(
     });
   } catch (err: any) {
     console.error("XAPI VM action error:", err);
+    const msg = (err.message || String(err)).toLowerCase();
+    if (action === "start" && (msg.includes("bad_power_state") || msg.includes("already") || msg.includes("running"))) {
+      return NextResponse.json({ error: "VM is already running." }, { status: 400 });
+    }
+    if (action === "stop" && (msg.includes("bad_power_state") || msg.includes("already") || msg.includes("halted"))) {
+      return NextResponse.json({ error: "VM is already stopped." }, { status: 400 });
+    }
+    if (action === "reboot" && msg.includes("bad_power_state")) {
+      return NextResponse.json({ error: "VM must be running to reboot." }, { status: 400 });
+    }
     return NextResponse.json({ error: "Failed to execute VM action." }, { status: 500 });
   }
 }

@@ -848,7 +848,7 @@ const fetchTemplates = () => fetchTemplatesWithRetry(0);
           <Button variant="ghost" size="sm" onClick={() => setView('student-vms')}>
             <ChevronLeft className="h-4 w-4" /> Back
           </Button>
-          <h1 className="text-2xl font-bold">Request a Virtual Machine</h1>
+
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -872,9 +872,7 @@ const fetchTemplates = () => fetchTemplatesWithRetry(0);
               <div className="flex items-center justify-between mb-3">
                 <Label className="text-sm font-medium">
                   Select a Template
-                  {templatesFromXcpng && (
-                    <Badge variant="secondary" className="ml-2 text-[10px] font-mono">XCP-ng</Badge>
-                  )}
+
                 </Label>
                 <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={fetchTemplates} disabled={templatesLoading}>
                   <RefreshCw className={`h-3 w-3 mr-1 ${templatesLoading ? 'animate-spin' : ''}`} /> Refresh

@@ -46,21 +46,45 @@ export async function POST(
       return NextResponse.json({ error: "Student not found." }, { status: 404 });
     }
 
-    // Verify student is enrolled in the lab that this sous-groupe belongs to
-    const studentLab = await db.studentLab.findFirst({
+    // Verify student is enrolled in a lab at the same level as the group
+    let studentLabAccess = await db.studentLab.findFirst({
       where: { studentId, labId: sousGroupe.labId },
     });
-    if (!studentLab) {
-      return NextResponse.json({ error: "You must be enrolled in this lab to join a group." }, { status: 403 });
+    if (!studentLabAccess && sousGroupe.levelId) {
+      const studentLabs = await db.studentLab.findMany({
+        where: { studentId },
+        select: { labId: true },
+      });
+      const studentLabIds = studentLabs.map(sl => sl.labId);
+      studentLabAccess = await db.lab.findFirst({
+        where: { id: { in: studentLabIds }, level: String(sousGroupe.levelId) },
+      }) as any;
+    }
+    if (!studentLabAccess) {
+      return NextResponse.json({ error: "You must be enrolled in a lab at this level to join a group." }, { status: 403 });
     }
 
-    // If instructor, verify they belong to this lab
+    // If instructor, verify they can access this group (by level or lab)
     if (session.role === "instructor") {
       const instructor = await db.instructor.findUnique({
         where: { id: session.userId },
       });
-      if (instructor && instructor.labId !== sousGroupe.labId) {
-        return NextResponse.json({ error: "You can only modify sous-groupes in your own lab." }, { status: 403 });
+      if (instructor) {
+        const instructorLabs = await db.instructorLab.findMany({
+          where: { instructorId: instructor.id },
+          select: { labId: true },
+        });
+        const instructorLabIds = [instructor.labId, ...instructorLabs.map(l => l.labId)];
+        let hasAccess = instructorLabIds.includes(sousGroupe.labId);
+        if (!hasAccess && sousGroupe.levelId) {
+          const levelLabMatch = await db.lab.findFirst({
+            where: { id: { in: instructorLabIds }, level: String(sousGroupe.levelId) },
+          });
+          hasAccess = !!levelLabMatch;
+        }
+        if (!hasAccess) {
+          return NextResponse.json({ error: "You can only manage groups in your own labs." }, { status: 403 });
+        }
       }
     }
 

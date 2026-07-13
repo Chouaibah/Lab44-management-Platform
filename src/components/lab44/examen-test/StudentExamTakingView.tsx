@@ -69,6 +69,7 @@ export default function StudentExamTakingView() {
   // Timer
   const [timeLeft, setTimeLeft] = useState(0);
   const startTimeRef = useRef<number>(Date.now());
+  const autoSubmitted = useRef(false);
 
   // Submit confirmation dialog
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
@@ -225,6 +226,7 @@ export default function StudentExamTakingView() {
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
+          autoSubmitted.current = true;
           handleSubmit();
           return 0;
         }
@@ -298,6 +300,14 @@ export default function StudentExamTakingView() {
   const timerColor = timeLeft <= 60 ? 'text-red-600 dark:text-red-400' : timeLeft <= 300 ? 'text-amber-600 dark:text-amber-400' : 'text-foreground';
   const timerBg = timeLeft <= 60 ? 'bg-red-50 dark:bg-red-950/30' : timeLeft <= 300 ? 'bg-amber-50 dark:bg-amber-950/30' : 'bg-muted/50';
 
+  // Auto-redirect after time-expired auto-submit (5s to see results)
+  useEffect(() => {
+    if (phase === 'results' && autoSubmitted.current) {
+      const t = setTimeout(() => setView('student-exams'), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [phase, setView]);
+
   // ─── Loading Phase ────────────────────────────────────────────────────────
   if (phase === 'loading') {
     return (
@@ -342,14 +352,14 @@ export default function StudentExamTakingView() {
           <Card className="shadow-md">
             <CardContent className="p-6 sm:p-8">
               <div className="flex flex-col items-center text-center">
-                <h2 className="text-xl font-bold mb-6">Exam Results</h2>
+                <h2 className="text-xl font-bold mb-6">{exam?.title || 'Exam'} — Results</h2>
 
                 {/* Circular Progress */}
                 <div className="relative mb-4">
                   <CircularProgress value={scorePercent} size={120} strokeWidth={8} color={scoreColor} />
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
                     <span className={`text-2xl font-bold ${scoreTextColor}`}>
-                      {scorePercent.toFixed(1)}%
+                      {scorePercent.toFixed(1)}/20
                     </span>
                   </div>
                 </div>

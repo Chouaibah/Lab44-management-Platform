@@ -540,3 +540,90 @@ export function CreateVmDialog({
     </Dialog>
   );
 }
+
+// ─── Edit VM Resources Dialog ─────────────────────────────────────────────────
+
+export interface EditVmResourcesState {
+  open: boolean;
+  vmUuid: string;
+  vmName: string;
+  currentVcpus: number;
+  currentMemoryMB: number;
+}
+
+interface EditVmResourcesDialogProps {
+  state: EditVmResourcesState;
+  vcpus: number;
+  memoryMB: number;
+  loading: boolean;
+  onClose: () => void;
+  onVcpusChange: (v: number) => void;
+  onMemoryChange: (v: number) => void;
+  onConfirm: () => void;
+}
+
+export function EditVmResourcesDialog({
+  state, vcpus, memoryMB, loading,
+  onClose, onVcpusChange, onMemoryChange, onConfirm,
+}: EditVmResourcesDialogProps) {
+  return (
+    <Dialog open={state.open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Server className="h-5 w-5 text-indigo-500" /> Edit VM Resources
+          </DialogTitle>
+          <DialogDescription>
+            {state.vmName} — Changes take effect after VM restart
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="p-3 rounded-lg bg-muted/30 text-center">
+              <p className="text-xs text-muted-foreground mb-1">Current vCPUs</p>
+              <p className="text-lg font-bold">{state.currentVcpus}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/30 text-center">
+              <p className="text-xs text-muted-foreground mb-1">Current RAM</p>
+              <p className="text-lg font-bold">{formatMemory(state.currentMemoryMB * 1024 * 1024)}</p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">vCPUs</Label>
+              <Input
+                type="number"
+                min={1}
+                max={32}
+                value={vcpus}
+                onChange={e => onVcpusChange(parseInt(e.target.value) || 1)}
+                className="h-9"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">RAM (GB)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={256}
+                step={0.5}
+                value={memoryMB / 1024}
+                onChange={e => onMemoryChange(parseFloat(e.target.value) * 1024 || 1024)}
+              />
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={onConfirm} disabled={loading} className="gap-1.5 bg-indigo-600 hover:bg-indigo-700">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            Save Resources
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

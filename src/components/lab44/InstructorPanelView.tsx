@@ -30,11 +30,11 @@ import {
 
 import {
   Users, BarChart3, Monitor, RefreshCw,
-  ChevronRight, BookOpen,
+  ChevronRight, ChevronDown, BookOpen,
   Plus, Pencil, Trash2, Columns3, FileText, Download, File, Megaphone, Scale,
   Link2, ArrowUp, ArrowDown, Wrench, Library, Video, ExternalLink,
   CalendarCheck, FolderOpen, Eye, EyeOff, X, ClipboardCheck,
-  KeyRound, CheckCircle, Copy,
+  KeyRound, CheckCircle, Copy, Globe,
 } from 'lucide-react';
 
 import {
@@ -42,7 +42,232 @@ import {
   vmStatusBadge, getInitials, getAvatarColor,
 } from '@/lib/helpers';
 
-// ─── Instructor Panel View (Dashboard) ─────────────────────────────────────────
+// ─── Lab Materials Card ──────────────────────────────────────────────────────
+function LabMaterialsCard({ labId, instructorName }: { labId: number; instructorName: string }) {
+  interface Link { id: number; title: string; url: string; description: string | null }
+  const [links, setLinks] = React.useState<Link[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [hiddenIds, setHiddenIds] = React.useState<Set<number>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(`lab-materials-hidden-${labId}`) || '[]')); } catch { return new Set(); }
+  });
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [editDialogOpen, setEditDialogOpen] = React.useState(false);
+  const [editingId, setEditingId] = React.useState<number | null>(null);
+  const [title, setTitle] = React.useState('');
+  const [url, setUrl] = React.useState('');
+  const [desc, setDesc] = React.useState('');
+  const [saving, setSaving] = React.useState(false);
+  const [collapsed, setCollapsed] = React.useState(false);
+
+  const load = async () => {
+    try { const res = await fetch(`/api/resource-links?labId=${labId}`); const data = await res.json(); setLinks(data.links || []); } catch {}
+    setLoading(false);
+  };
+  React.useEffect(() => { load(); }, [labId]);
+
+  const handleAdd = async () => {
+    if (!title.trim() || !url.trim()) return;
+    setSaving(true);
+    try {
+      const finalUrl = url.trim().startsWith('http') ? url.trim() : `https://${url.trim()}`;
+      const res = await fetch('/api/resource-links', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title.trim(), url: finalUrl, description: desc.trim() || null, labId }) });
+      const data = await res.json();
+      if (!data.ok) { toast.error(data.error || 'Failed'); return; }
+      toast.success('Link added');
+      setTitle(''); setUrl(''); setDesc(''); setDialogOpen(false);
+      load();
+    } catch { toast.error('Connection error'); }
+    setSaving(false);
+  };
+
+  const handleEdit = (link: Link) => {
+    setEditingId(link.id);
+    setTitle(link.title);
+    setUrl(link.url);
+    setDesc(link.description || '');
+    setEditDialogOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingId || !title.trim() || !url.trim()) return;
+    setSaving(true);
+    try {
+      const finalUrl = url.trim().startsWith('http') ? url.trim() : `https://${url.trim()}`;
+      const res = await fetch('/api/resource-links', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editingId, title: title.trim(), url: finalUrl, description: desc.trim() || null }) });
+      const data = await res.json();
+      if (!data.ok) { toast.error(data.error || 'Failed'); return; }
+      toast.success('Link updated');
+      setEditDialogOpen(false); setEditingId(null);
+      load();
+    } catch { toast.error('Connection error'); }
+    setSaving(false);
+  };
+
+  const toggleHidden = (id: number) => {
+    setHiddenIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      try { localStorage.setItem(`lab-materials-hidden-${labId}`, JSON.stringify([...next])); } catch {}
+      return next;
+    });
+    // Also update DB so students can/can't see
+    fetch('/api/resource-links', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, hidden: !hiddenIds.has(id) }) }).catch(() => {});
+  };
+
+  const handleDelete = async (id: number) => {
+    try { await fetch(`/api/resource-links?id=${id}`, { method: 'DELETE' }); toast.success('Link removed'); load(); } catch { toast.error('Connection error'); }
+  };
+
+  const visibleLinks = links.filter(l => !hiddenIds.has(l.id));
+  const hiddenLinks = links.filter(l => hiddenIds.has(l.id));
+
+  return (
+    <Card className="shadow-sm">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setCollapsed(!collapsed)} className="text-muted-foreground hover:text-foreground">
+              {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+            <CardTitle className="text-base">Lab Materials</CardTitle>
+            <Badge variant="secondary" className="text-[10px]">{visibleLinks.length}</Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => { setTitle(''); setUrl(''); setDesc(''); setDialogOpen(true); }}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> Add Link
+            </Button>
+            <Button variant="outline" size="sm" onClick={async () => {
+              try {
+                // 1. Ensure the instructor has an OwnCloud account + usable
+                //    password. The endpoint always returns the password so
+                //    we can copy it to the clipboard (OwnCloud doesn't
+                //    support URL-based auto-login).
+                const provRes = await fetch('/api/owncloud/provision', { method: 'POST' });
+                const provData = await provRes.json();
+                if (!provRes.ok || provData.error) {
+                  toast.error(provData.error || 'Failed to reach OwnCloud');
+                  return;
+                }
+                if (!provData.loginUrl) {
+                  toast.error('OwnCloud is not configured');
+                  return;
+                }
+                // 2. Copy the password to the clipboard so the instructor
+                //    can paste it directly into the OwnCloud login form.
+                if (provData.password) {
+                  try {
+                    await navigator.clipboard.writeText(provData.password);
+                    toast.success(
+                      `OwnCloud — username: "${provData.username}" · password copied to clipboard`,
+                      { duration: 10000 },
+                    );
+                  } catch {
+                    // Clipboard API can fail in non-secure contexts — fall
+                    // back to showing the password inline.
+                    toast.success(
+                      `OwnCloud — username: "${provData.username}" · password: ${provData.password}`,
+                      { duration: 15000 },
+                    );
+                  }
+                } else {
+                  toast.success(`Opening OwnCloud — log in as "${provData.username}"`, { duration: 5000 });
+                }
+                // 3. Open OwnCloud's login page in a new tab.
+                window.open(provData.loginUrl, '_blank', 'noopener,noreferrer');
+              } catch {
+                toast.error('Failed to connect to OwnCloud');
+              }
+            }}>
+              <Globe className="h-3.5 w-3.5 mr-1" /> OwnCloud
+            </Button>
+          </div>
+        </div>
+        <CardDescription className="mt-0.5">OwnCloud links and resources for your students</CardDescription>
+      </CardHeader>
+      {!collapsed && (
+      <CardContent>
+        {loading ? <Skeleton className="h-16 rounded-lg" /> : links.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">No materials added yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {visibleLinks.map(link => (
+              <div key={link.id} className="flex items-center justify-between p-2.5 rounded-lg border bg-muted/30">
+                <div className="min-w-0 flex-1">
+                  <button onClick={() => window.open(link.url, '_blank', 'noopener,noreferrer')} className="text-sm font-medium hover:text-primary truncate block text-left bg-transparent border-0 p-0 cursor-pointer">{link.title}</button>
+                  {link.description && <p className="text-xs text-muted-foreground truncate">{link.description}</p>}
+                </div>
+                <div className="flex items-center gap-1 shrink-0 ml-2">
+                  <Button variant="ghost" size="icon" className="h-7 w-7" title={hiddenIds.has(link.id) ? 'Show' : 'Hide'} onClick={() => toggleHidden(link.id)}>
+                    {hiddenIds.has(link.id) ? <EyeOff className="h-3.5 w-3.5 text-muted-foreground" /> : <Eye className="h-3.5 w-3.5 text-emerald-600" />}
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(link)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={() => handleDelete(link.id)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {hiddenLinks.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-border/40">
+                <p className="text-[10px] text-muted-foreground mb-2">Hidden from students ({hiddenLinks.length})</p>
+                {hiddenLinks.map(link => (
+                  <div key={link.id} className="flex items-center justify-between p-2.5 rounded-lg border bg-muted/10 opacity-60 mb-1">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-sm font-medium truncate block">{link.title}</span>
+                      {link.description && <p className="text-xs text-muted-foreground truncate">{link.description}</p>}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0 ml-2">
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toggleHidden(link.id)} title="Show">
+                        <EyeOff className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(link)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={() => handleDelete(link.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+      )}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>Add Material Link</DialogTitle><DialogDescription>Add an OwnCloud link for your students.</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5"><Label className="text-xs font-medium">Title *</Label><Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. TP1: OSPF Configuration" /></div>
+            <div className="space-y-1.5"><Label className="text-xs font-medium">URL *</Label><Input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://owncloud.example.com/s/..." /></div>
+            <div className="space-y-1.5"><Label className="text-xs font-medium">Description (optional)</Label><Textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="Brief description..." /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleAdd} disabled={saving || !title.trim() || !url.trim()}>{saving ? 'Adding...' : 'Add Link'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>Edit Link</DialogTitle><DialogDescription>Update the material link.</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5"><Label className="text-xs font-medium">Title *</Label><Input value={title} onChange={e => setTitle(e.target.value)} /></div>
+            <div className="space-y-1.5"><Label className="text-xs font-medium">URL *</Label><Input value={url} onChange={e => setUrl(e.target.value)} /></div>
+            <div className="space-y-1.5"><Label className="text-xs font-medium">Description (optional)</Label><Textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setEditDialogOpen(false); setEditingId(null); }}>Cancel</Button>
+            <Button onClick={handleSaveEdit} disabled={saving || !title.trim() || !url.trim()}>{saving ? 'Saving...' : 'Save'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
 
 export default function InstructorPanelView() {
   const { auth, students, setStudents, columns, setColumns, grades, setGrades, attendance, setAttendance, vmRequests, setVmRequests, setStudentLabs, setView, resourceLinks, setResourceLinks, sousGroupes, setSousGroupes, selectedLabId, setSelectedLabId, labs, setLabs } = useLab44Store();
@@ -107,10 +332,10 @@ export default function InstructorPanelView() {
     [columns, activeLabId]
   );
 
-  // Sous-groupes for the active lab
+  // Sous-groupes (server already filters by level)
   const labSousGroupes = useMemo(() =>
-    sousGroupes.filter(sg => sg.labId === activeLabId),
-    [sousGroupes, activeLabId]
+    sousGroupes,
+    [sousGroupes]
   );
 
   // Pending VMs count
@@ -584,16 +809,6 @@ export default function InstructorPanelView() {
       <motion.div {...fadeSlide}>
         <BreadcrumbNav items={[{ label: 'Instructor', view: 'instructor-panel' }, { label: 'Dashboard' }]} />
 
-        {/* ─── Welcome ─────────────────────────────────────────────────── */}
-        <div className="mb-6">
-          <h1 className="text-lg font-semibold">
-            {labs.find(l => l.id === activeLabId)?.name || instructor.labName || 'Lab'}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {instructor.displayName} &middot; {instructor.email || ''}
-          </p>
-        </div>
-
         {loading ? (
           <div className="space-y-6">
             <Skeleton className="h-64 rounded-xl" />
@@ -609,8 +824,8 @@ export default function InstructorPanelView() {
               <p className="text-xs text-muted-foreground mt-1">Students</p>
             </div>
             <div className="rounded-lg border bg-card p-4">
-              <p className="text-2xl font-semibold">{labColumns.length}</p>
-              <p className="text-xs text-muted-foreground mt-1">Grade Columns</p>
+              <p className="text-2xl font-semibold">{labVmRequests.filter(r => r.status === 'approved').length}</p>
+              <p className="text-xs text-muted-foreground mt-1">Approved VMs</p>
             </div>
             <div className="rounded-lg border bg-card p-4">
               <p className="text-2xl font-semibold">{labVmRequests.length}</p>
@@ -621,6 +836,9 @@ export default function InstructorPanelView() {
               <p className="text-xs text-muted-foreground mt-1">Pending</p>
             </div>
           </div>
+
+          {/* ─── Lab Materials ────────────────────────────────────────────── */}
+          <LabMaterialsCard labId={activeLabId} instructorName={instructor.displayName} />
 
           {/* ─── Two-Column Layout: Students + VM Requests ──────────────── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -764,7 +982,6 @@ export default function InstructorPanelView() {
               </div>
             </CardContent>
           </Card>
-
 
           {/* ─── Manage Columns Dialog ────────────────────────────────────── */}
           <Dialog open={manageColsOpen} onOpenChange={(open) => { setManageColsOpen(open); if (!open) { setNewColName(''); setNewColWeight('1.0'); setRenameColOpen(false); } }}>

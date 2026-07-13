@@ -335,9 +335,10 @@ export default function MessagingView() {
           : isInstructor ? [{ label: 'Dashboard', view: 'instructor-panel' }, { label: 'Messages' }]
           : [{ label: 'Messages' }]
         } />
-        <div className="flex items-center justify-between mt-2">
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-xl font-bold tracking-tight">Messages</h1>
+            <h1 className="text-2xl text-primary font-semibold  items-center gap-2">Messages</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               {isStudent ? 'Chat with your lab instructor' : isInstructor ? 'Chat with your students' : 'All conversations'}
             </p>

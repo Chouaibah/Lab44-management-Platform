@@ -3,7 +3,7 @@
 import React from 'react';
 import {
   Monitor, Server, Play, Square, RotateCcw, Trash2, Eye,
-  Loader2, Unplug, Terminal, RefreshCw,
+  Loader2, Unplug, Terminal, RefreshCw, Cpu,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -39,14 +39,15 @@ interface ActiveVmsTableProps {
   onDeleteRequest: (req: { id: number; studentName: string; templateName: string | null }) => void;
   onConvertToTemplate: (vmUuid: string, vmName: string) => void;
   convertLoading?: string | null;
+  onEditResources?: (vmUuid: string, vmName: string, vcpus: number, memoryMB: number) => void;
 }
 
 export function ActiveVmsTable({
   approved, deletedVmIds, showDeleted, vmPowerStates,
   approvedSelectedIds, allApprovedSelected, someApprovedSelected,
   onToggleSelect, onToggleSelectAll,
-  isLoading, onVmAction, onViewDetails, onOpenConsole, onDeleteRequest,
-  onConvertToTemplate, convertLoading,
+  isLoading, onVmAction, onViewDetails, onOpenConsole,   onDeleteRequest,
+  onConvertToTemplate, convertLoading, onEditResources,
 }: ActiveVmsTableProps) {
   const visible = approved.filter(r => showDeleted || !deletedVmIds.has(r.id));
 
@@ -55,7 +56,6 @@ export function ActiveVmsTable({
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           Active VM Assignments
-          <Badge className="bg-green-500 text-white border-green-500">{approved.length}</Badge>
           {deletedVmIds.size > 0 && (
             <Badge variant="outline" className="text-red-500 border-red-500/20 text-xs ml-1">
               {deletedVmIds.size} deleted
@@ -206,6 +206,29 @@ export function ActiveVmsTable({
                                   </Button>
                                 );
                               })}
+                              {onEditResources && isInstructorVm && (
+                                <Button
+                                  variant="ghost" size="icon"
+                                  className="h-7 w-7 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-900/30"
+                                  title="Edit CPU & RAM"
+                                  onClick={async () => {
+                                    try {
+                                      const res = await fetch(`/api/xapi/vms/${req.vmUuid}/details`);
+                                      const data = await res.json();
+                                      onEditResources(
+                                        req.vmUuid!,
+                                        req.vmName || '',
+                                        data.vCPUs_max || 1,
+                                        data.memory_dynamic_max ? Math.round(data.memory_dynamic_max / (1024 * 1024)) : 1024
+                                      );
+                                    } catch {
+                                      onEditResources(req.vmUuid!, req.vmName || '', 1, 1024);
+                                    }
+                                  }}
+                                >
+                                  <Cpu className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
                               <Button
                                 variant="ghost" size="icon"
                                 className="h-7 w-7 text-violet-600 hover:text-violet-700 hover:bg-violet-100 dark:hover:bg-violet-900/30"

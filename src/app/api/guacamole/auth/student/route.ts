@@ -178,8 +178,9 @@ export async function POST(req: Request) {
     const osUser = customOsUser || (desiredProtocol === "ssh" ? "xen" : "lab");
     const osPass = customOsPass ?? "";
 
+    const nameSuffix = (vmRequest.vmUuid || "").replace(/-/g, '').slice(-8);
     const connectionName =
-      `${vmRequest.vmName || "VM"}-${desiredProtocol}`;
+      `${vmRequest.vmName || "VM"}-${desiredProtocol}-${nameSuffix}`;
 
     let connectionId: string;
     try {

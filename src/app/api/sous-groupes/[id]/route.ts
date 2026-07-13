@@ -38,12 +38,19 @@ export async function GET(
       return NextResponse.json({ error: "Sous-groupe not found." }, { status: 404 });
     }
 
-    // Students can only view sous-groupes in their own labs
+    // Students can only view sous-groupes in their own level's labs
     if (session.role === "student") {
-      const studentLab = await db.studentLab.findFirst({
-        where: { studentId: session.userId, labId: sousGroupe.labId },
+      const studentLabs = await db.studentLab.findMany({
+        where: { studentId: session.userId },
+        select: { labId: true },
       });
-      if (!studentLab) {
+      const studentLabIds = studentLabs.map(sl => sl.labId);
+      const hasAccess = sousGroupe.levelId
+        ? await db.lab.findFirst({
+            where: { id: { in: studentLabIds }, level: String(sousGroupe.levelId) },
+          })
+        : studentLabIds.includes(sousGroupe.labId);
+      if (!hasAccess) {
         return NextResponse.json({ error: "Access denied." }, { status: 403 });
       }
     }
@@ -103,13 +110,27 @@ export async function PUT(
       return NextResponse.json({ error: "Sous-groupe not found." }, { status: 404 });
     }
 
-    // If instructor, verify they belong to this lab
+    // If instructor, verify they can access this group (by level or lab)
     if (session.role === "instructor") {
       const instructor = await db.instructor.findUnique({
         where: { id: session.userId },
       });
-      if (instructor && instructor.labId !== sousGroupe.labId) {
-        return NextResponse.json({ error: "You can only update sous-groupes in your own lab." }, { status: 403 });
+      if (instructor) {
+        const instructorLabs = await db.instructorLab.findMany({
+          where: { instructorId: instructor.id },
+          select: { labId: true },
+        });
+        const instructorLabIds = [instructor.labId, ...instructorLabs.map(l => l.labId)];
+        let hasAccess = instructorLabIds.includes(sousGroupe.labId);
+        if (!hasAccess && sousGroupe.levelId) {
+          const levelLabMatch = await db.lab.findFirst({
+            where: { id: { in: instructorLabIds }, level: String(sousGroupe.levelId) },
+          });
+          hasAccess = !!levelLabMatch;
+        }
+        if (!hasAccess) {
+          return NextResponse.json({ error: "You can only update groups in your own labs." }, { status: 403 });
+        }
       }
     }
 
@@ -188,13 +209,24 @@ export async function DELETE(
       return NextResponse.json({ error: "Sous-groupe not found." }, { status: 404 });
     }
 
-    // If instructor, verify they belong to this lab
+    // If instructor, verify they can access this group (by level or lab)
     if (session.role === "instructor") {
       const instructor = await db.instructor.findUnique({
         where: { id: session.userId },
       });
-      if (instructor && instructor.labId !== sousGroupe.labId) {
-        return NextResponse.json({ error: "You can only delete sous-groupes in your own lab." }, { status: 403 });
+      if (instructor) {
+        const instructorLabs = await db.instructorLab.findMany({ where: { instructorId: instructor.id }, select: { labId: true } });
+        const instructorLabIds = [instructor.labId, ...instructorLabs.map(l => l.labId)];
+        let hasAccess = instructorLabIds.includes(sousGroupe.labId);
+        if (!hasAccess && sousGroupe.levelId) {
+          const levelLabMatch = await db.lab.findFirst({
+            where: { id: { in: instructorLabIds }, level: String(sousGroupe.levelId) },
+          });
+          hasAccess = !!levelLabMatch;
+        }
+        if (!hasAccess) {
+          return NextResponse.json({ error: "You can only delete groups in your own labs." }, { status: 403 });
+        }
       }
     }
 

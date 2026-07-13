@@ -41,7 +41,7 @@ import {
   FlaskConical, Plus, Lock, Loader2,
   X, Users,
   Link2, FileText, BookOpen, Wrench, Library, Video, ExternalLink,
-  Download, File, ClipboardCheck, RefreshCw,
+  Download, File, ClipboardCheck,
 } from 'lucide-react';
 
 import {
@@ -384,27 +384,6 @@ export default function StudentChoiceView() {
     setJoinLabLoading(false);
   };
 
-  const handleRefreshMaterials = async () => {
-    if (!student) return;
-    const myLabIds = (studentLabs || []).filter(sl => sl.studentId === student.id).map(sl => sl.labId);
-    try {
-      const allLinks: ResourceLink[] = [];
-      const allDocs: typeof studentLabDocuments = [];
-      for (const labId of myLabIds) {
-        const [rlRes, docsRes] = await Promise.all([
-          fetch(`/api/resource-links?labId=${labId}`),
-          fetch(`/api/labs/${labId}/documents`),
-        ]);
-        const rlData = await rlRes.json();
-        const docsData = await docsRes.json();
-        if (rlData.links && Array.isArray(rlData.links)) allLinks.push(...rlData.links);
-        if (docsData.documents && Array.isArray(docsData.documents)) allDocs.push(...docsData.documents);
-      }
-      setStudentResourceLinks(allLinks);
-      setStudentLabDocuments(allDocs);
-    } catch { toast.error('Failed to refresh'); }
-  };
-
   const dashCards = [
     {
       view: 'student-grades' as AppView,
@@ -673,18 +652,12 @@ if (loading) {
         )}
       </motion.div>
 
-      {/* My Groups Section */}
-      {myLabIds.length > 0 && <StudentGroupsSection studentId={student?.id} labIds={myLabIds} />}
-
-      <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-3">
+      <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
       <BookOpen className="h-3.5 w-3.5" /> My Materials
-      <Button variant="outline" size="icon" className=" ml-auto  " onClick={handleRefreshMaterials} title="Refresh">
-        <RefreshCw className="h-4 w-4" />
-      </Button>
       </h3>
       {studentLabDocuments.length === 0 && studentResourceLinks.length === 0 && joinedLabs.length > 0 && (
         <motion.div {...fadeSlide} transition={{ delay: 0.04 }} className="mb-8">
-        <Card className="shadow-sm mt-3">
+        <Card className="shadow-sm mt-3">   {/* ← أضف mt-3 هنا */}
         <CardContent className="py-8 text-center">
         <BookOpen className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
         <p className="text-sm text-muted-foreground">No lab materials available yet</p>
@@ -693,95 +666,18 @@ if (loading) {
         </Card>
         </motion.div>
       )}
-      {/* Lab Materials (Posts + Resource Links) */}
-      {(studentLabDocuments.length > 0 || studentResourceLinks.length > 0) && (() => {
+      {/* Greeting / Welcome Text */}
+      <motion.div {...fadeSlide} transition={{ delay: 0.05 }} className="text-center mb-10">
 
 
 
-        // Group by lab
-        const labGroups: Record<number, { labName: string; docs: typeof studentLabDocuments; links: ResourceLink[] }> = {};
-
-        for (const doc of studentLabDocuments) {
-          const labName = labs.find(l => l.id === doc.labId)?.name || 'Unknown Lab';
-          if (!labGroups[doc.labId]) labGroups[doc.labId] = { labName, docs: [], links: [] };
-          labGroups[doc.labId].docs.push(doc);
-        }
-
-        for (const link of studentResourceLinks) {
-          const labName = labs.find(l => l.id === link.labId)?.name || 'Unknown Lab';
-          if (!labGroups[link.labId]) labGroups[link.labId] = { labName, docs: [], links: [] };
-          labGroups[link.labId].links.push(link);
-        }
-
-        const totalItems = studentLabDocuments.length + studentResourceLinks.length;
-
-        return (
-          <motion.div {...fadeSlide} transition={{ delay: 0.04 }} className="mb-8">
-            <Card className="shadow-sm">
-              <CardContent className="p-5">
-                <div className="flex items-center gap-3 ">
-
-
-
-                </div>
-                <div className="space-y-5">
-                  {Object.entries(labGroups).map(([labIdStr, group]) => {
-                    const showLabHeader = Object.keys(labGroups).length > 1;
-                    return (
-                      <div key={labIdStr}>
-                        {showLabHeader && (
-                          <div className="flex items-center gap-2 mb-2.5">
-                            <FlaskConical className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
-                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{group.labName}</span>
-                          </div>
-                        )}
-                        <div className="space-y-3">
-
-
-                          {/* Resource Links (standalone) */}
-                          {group.links.sort((a, b) => a.order - b.order || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((link) => {
-                            return (
-                              <a
-                                key={`link-${link.id}`}
-                                href={link.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors group/link"
-                              >
-                                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted shrink-0">
-                                  <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <p className="text-sm font-medium truncate group-hover/link:text-primary transition-colors">{link.title}</p>
-                                    <span className="text-[9px] text-muted-foreground bg-muted/50 px-1 rounded shrink-0">{group.labName}</span>
-                                  </div>
-                                  {link.description ? (
-                                    <p className="text-[11px] text-muted-foreground line-clamp-1">{link.description}</p>
-                                  ) : (
-                                    <p className="text-[11px] text-muted-foreground line-clamp-1 truncate">{link.url}</p>
-                                  )}
-                                </div>
-                                <ExternalLink className="h-3.5 w-3.5 text-muted-foreground/40 group-hover/link:text-primary shrink-0 transition-colors" />
-                              </a>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        );
-      })()}
-
+      </motion.div>
       <div className="my-6"><Separator /></div>
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {dashCards.map((card) => (
           <div key={card.view}>
             <Card className="group cursor-pointer hover:shadow-md transition-shadow relative overflow-hidden" onClick={() => setView(card.view)}>
+              {/* Mobile swipe hint indicator - hidden on sm+ screens */}
               <div className="sm:hidden absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
                 <ArrowRight className="h-4 w-4 text-muted-foreground/30" />
               </div>
@@ -806,6 +702,187 @@ if (loading) {
           </div>
         ))}
       </div>
+
+      <div className="my-8"><Separator /></div>
+
+      {/* Lab Materials (Posts + Resource Links) */}
+      {(studentLabDocuments.length > 0 || studentResourceLinks.length > 0) && (() => {
+        // Category icon mapping for resource links
+        const catIconMap: Record<string, { icon: typeof FileText; color: string; bg: string; label: string }> = {
+          documentation: { icon: FileText, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-100 dark:bg-blue-900/30', label: 'Documentation' },
+          tutorial: { icon: BookOpen, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-900/30', label: 'Tutorial' },
+          tool: { icon: Wrench, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/30', label: 'Tool' },
+          reference: { icon: Library, color: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-100 dark:bg-violet-900/30', label: 'Reference' },
+          video: { icon: Video, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-100 dark:bg-rose-900/30', label: 'Video' },
+          general: { icon: Link2, color: 'text-gray-600 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-900/30', label: 'General' },
+        };
+        const getCatInfo = (cat: string) => catIconMap[cat] || catIconMap.general;
+
+        // Get file icon for documents
+        const getDocFileIcon = (fileType: string | null) => {
+          if (fileType === 'application/pdf') return <FileText className="h-3.5 w-3.5 text-red-500" />;
+          return <File className="h-3.5 w-3.5 text-muted-foreground" />;
+        };
+
+        // Handle document download
+        const handleDocDownload = async (documentId: number, title: string) => {
+          try {
+            const res = await fetch(`/api/documents/${documentId}`);
+            if (!res.ok) throw new Error('Download failed');
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = title;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+          } catch { toast.error('Failed to download'); }
+        };
+
+        // Group by lab
+        const labGroups: Record<number, { labName: string; docs: typeof studentLabDocuments; links: ResourceLink[] }> = {};
+
+        for (const doc of studentLabDocuments) {
+          const labName = labs.find(l => l.id === doc.labId)?.name || 'Unknown Lab';
+          if (!labGroups[doc.labId]) labGroups[doc.labId] = { labName, docs: [], links: [] };
+          labGroups[doc.labId].docs.push(doc);
+        }
+
+        for (const link of studentResourceLinks) {
+          const labName = labs.find(l => l.id === link.labId)?.name || 'Unknown Lab';
+          if (!labGroups[link.labId]) labGroups[link.labId] = { labName, docs: [], links: [] };
+          labGroups[link.labId].links.push(link);
+        }
+
+        const totalItems = studentLabDocuments.length + studentResourceLinks.length;
+
+        return (
+          <motion.div {...fadeSlide} transition={{ delay: 0.04 }} className="mb-8">
+            <Card className="shadow-sm">
+              <CardContent className="p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100 dark:bg-amber-900/30 shrink-0">
+                    <BookOpen className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-base font-semibold">Lab Materials</h3>
+                    <p className="text-xs text-muted-foreground">Posts & resources from your instructors</p>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30">
+                    {totalItems} item{totalItems !== 1 ? 's' : ''}
+                  </Badge>
+                </div>
+                <div className="space-y-5">
+                  {Object.entries(labGroups).map(([labIdStr, group]) => {
+                    const showLabHeader = Object.keys(labGroups).length > 1;
+                    return (
+                      <div key={labIdStr}>
+                        {showLabHeader && (
+                          <div className="flex items-center gap-2 mb-2.5">
+                            <FlaskConical className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{group.labName}</span>
+                            <span className="text-[10px] text-muted-foreground/60">({group.docs.length + group.links.length})</span>
+                          </div>
+                        )}
+                        <div className="space-y-3">
+                          {/* Lab Posts (rich cards) */}
+                          {group.docs.map((doc) => (
+                            <motion.div
+                              key={`doc-${doc.id}`}
+                              initial={{ opacity: 0, y: 6 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="rounded-xl border border-border/40 p-4 bg-muted/10 hover:bg-muted/20 transition-colors"
+                            >
+                              {/* Post header */}
+                              <div className="flex items-start justify-between gap-2 mb-2">
+                                <div className="min-w-0 flex-1">
+                                  <h4 className="text-sm font-semibold truncate">{doc.title}</h4>
+                                  <p className="text-[11px] text-muted-foreground">{timeAgo(doc.createdAt)}</p>
+                                </div>
+                              </div>
+
+                              {/* Description */}
+                              {doc.description && (
+                                <p className="text-sm text-muted-foreground whitespace-pre-line mb-3">{doc.description}</p>
+                              )}
+
+                              {/* Image */}
+                              {doc.imageUrl && (
+                                <div className="rounded-lg border border-border/40 overflow-hidden mb-3">
+                                  <img
+                                    src={`/api/documents/${doc.id}?type=image`}
+                                    alt={doc.title}
+                                    className="max-h-64 w-auto object-contain mx-auto"
+                                    loading="lazy"
+                                  />
+                                </div>
+                              )}
+
+                              {/* Attachments row */}
+                              <div className="flex flex-wrap gap-2">
+                                {doc.filePath && (
+                                  <button
+                                    onClick={() => handleDocDownload(doc.id, doc.title)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors cursor-pointer"
+                                  >
+                                    {getDocFileIcon(doc.fileType)}
+                                    {doc.fileType === 'application/pdf' ? 'PDF' : 'File'} <Download className="h-3 w-3" />
+                                  </button>
+                                )}
+                                {doc.linkUrl && (
+                                  <a
+                                    href={doc.linkUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                                  >
+                                    <ExternalLink className="h-3 w-3" />
+                                    {doc.linkTitle || 'Link'}
+                                  </a>
+                                )}
+                              </div>
+                          {/* Resource Links (standalone) */}
+                          {group.links.sort((a, b) => a.order - b.order || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((link) => {
+                            const linkCatInfo = getCatInfo(link.category);
+                            const LinkIcon = linkCatInfo.icon;
+                            return (
+                              <a
+                                key={`link-${link.id}`}
+                                href={link.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors group/link"
+                              >
+                                <div className={`flex h-7 w-7 items-center justify-center rounded-md ${linkCatInfo.bg} shrink-0`}>
+                                  <LinkIcon className={`h-3.5 w-3.5 ${linkCatInfo.color}`} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate group-hover/link:text-primary transition-colors">{link.title}</p>
+                                  {link.description ? (
+                                    <p className="text-[11px] text-muted-foreground line-clamp-1">{link.description}</p>
+                                  ) : (
+                                    <p className="text-[11px] text-muted-foreground line-clamp-1 truncate">{link.url}</p>
+                                  )}
+                                </div>
+                                <ExternalLink className="h-3.5 w-3.5 text-muted-foreground/40 group-hover/link:text-primary shrink-0 transition-colors" />
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        );
+      })()}
+
+      {/* My Groups Section */}
+      {myLabIds.length > 0 && <StudentGroupsSection studentId={student?.id} labIds={myLabIds} />}
 
       {/* Leave Lab AlertDialog */}
       <AlertDialog open={leaveLabId !== null} onOpenChange={(open) => { if (!open) setLeaveLabId(null); }}>

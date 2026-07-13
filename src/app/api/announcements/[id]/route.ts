@@ -27,11 +27,18 @@ export async function PATCH(
       return NextResponse.json({ error: "Announcement not found." }, { status: 404 });
     }
 
-    const teaching = await db.instructorLab.findUnique({
-      where: { instructorId_labId: { instructorId: session.userId, labId: announcement.labId } },
+    const instructor = await db.instructor.findUnique({
+      where: { id: session.userId },
+      select: { labId: true },
     });
-    if (!teaching) {
-      return NextResponse.json({ error: "You can only edit announcements in your own lab." }, { status: 403 });
+    const isPrimaryLab = instructor?.labId === announcement.labId;
+    if (!isPrimaryLab) {
+      const teaching = await db.instructorLab.findUnique({
+        where: { instructorId_labId: { instructorId: session.userId, labId: announcement.labId } },
+      });
+      if (!teaching) {
+        return NextResponse.json({ error: "You can only edit announcements in your own lab." }, { status: 403 });
+      }
     }
 
     const data = await request.json();
@@ -92,11 +99,18 @@ export async function DELETE(
       return NextResponse.json({ error: "Announcement not found." }, { status: 404 });
     }
 
-    const teaching = await db.instructorLab.findUnique({
-      where: { instructorId_labId: { instructorId: session.userId, labId: announcement.labId } },
+    const instructor = await db.instructor.findUnique({
+      where: { id: session.userId },
+      select: { labId: true },
     });
-    if (!teaching) {
-      return NextResponse.json({ error: "You can only delete announcements in your own lab." }, { status: 403 });
+    const isPrimaryLab = instructor?.labId === announcement.labId;
+    if (!isPrimaryLab) {
+      const teaching = await db.instructorLab.findUnique({
+        where: { instructorId_labId: { instructorId: session.userId, labId: announcement.labId } },
+      });
+      if (!teaching) {
+        return NextResponse.json({ error: "You can only delete announcements in your own lab." }, { status: 403 });
+      }
     }
 
     // Permanent delete (for archived announcements only)

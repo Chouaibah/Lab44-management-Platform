@@ -98,7 +98,8 @@ export async function GET(
     });
   } catch (error) {
     console.error("Exam get error:", error);
-    return NextResponse.json({ ok: false, error: "Failed to load exam." }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ ok: false, error: `Failed to load exam: ${msg}` }, { status: 500 });
   }
 }
 

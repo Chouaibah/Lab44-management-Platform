@@ -121,6 +121,19 @@ export default function AdminSettingsView() {
   const [guacConnected, setGuacConnected] = useState(false);
   const [guacTestResult, setGuacTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  // Server capacity
+  const [serverVcpus, setServerVcpus] = useState('');
+  const [serverRamGb, setServerRamGb] = useState('');
+  const [serverCapLoading, setServerCapLoading] = useState(false);
+
+  // OwnCloud settings
+  const [ocUrl, setOcUrl] = useState('');
+  const [ocUser, setOcUser] = useState('');
+  const [ocPw, setOcPw] = useState('');
+  const [ocPwSet, setOcPwSet] = useState(false);
+  const [ocLoading, setOcLoading] = useState(false);
+  const [ocTestResult, setOcTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
   useEffect(() => {
     (async () => {
       try {
@@ -145,9 +158,22 @@ export default function AdminSettingsView() {
         setGuacPwSet(guacData.guacamole_root_password_set || false);
         setGuacConnected(guacData.connected || false);
       } catch { /* ignore */ }
+      // Load OwnCloud settings
+      try {
+        const ocRes = await fetch('/api/owncloud');
+        const ocData = await ocRes.json();
+        setOcUrl(ocData.owncloud_url || '');
+        setOcUser(ocData.owncloud_admin_username || '');
+        setOcPwSet(ocData.owncloud_admin_password_set || false);
+      } catch { /* ignore */ }
       setLoading(false);
     })();
   }, []);
+
+  useEffect(() => {
+    setServerVcpus(settings.server_total_vcpus || '');
+    setServerRamGb(settings.server_total_ram_gb || '');
+  }, [settings]);
 
   const updateSetting = async (key: string, value: string) => {
     try {
@@ -270,6 +296,49 @@ export default function AdminSettingsView() {
     setGuacLoading(false);
   };
 
+  const handleSaveServerCapacity = async () => {
+    setServerCapLoading(true);
+    await updateSetting('server_total_vcpus', serverVcpus);
+    await updateSetting('server_total_ram_gb', serverRamGb);
+    toast.success('Server capacity limits saved');
+    setServerCapLoading(false);
+  };
+
+  const handleTestOwnCloud = async () => {
+    if (!ocUrl.trim()) { toast.error('OwnCloud URL is required'); return; }
+    setOcLoading(true);
+    setOcTestResult(null);
+    try {
+      const res = await fetch('/api/owncloud', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: ocUrl.trim(), adminUsername: ocUser.trim(), adminPassword: ocPw }),
+      });
+      const data = await res.json();
+      setOcTestResult({ ok: data.ok || false, message: data.message || (data.error || 'Unknown error') });
+      if (data.ok) setOcPwSet(true);
+    } catch { setOcTestResult({ ok: false, message: 'Connection error' }); }
+    setOcLoading(false);
+  };
+
+  const handleSaveOwnCloud = async () => {
+    if (!ocUrl.trim()) { toast.error('OwnCloud URL is required'); return; }
+    setOcLoading(true);
+    try {
+      const res = await fetch('/api/owncloud', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: ocUrl.trim(), adminUsername: ocUser.trim(), adminPassword: ocPw.length > 0 ? ocPw : undefined }),
+      });
+      const data = await res.json();
+      if (!data.ok) { toast.error(data.error || 'Failed to save'); setOcLoading(false); return; }
+      setOcPwSet(ocPw.length > 0);
+      setOcPw('');
+      toast.success('OwnCloud settings saved');
+    } catch { toast.error('Connection error'); }
+    setOcLoading(false);
+  };
+
   const handlePurge = async () => {
     try {
       const res = await fetch('/api/data/purge?confirm=true', { method: 'DELETE' });
@@ -296,7 +365,7 @@ export default function AdminSettingsView() {
     <BreadcrumbNav items={[{ label: 'Admin', view: 'admin-panel' }, { label: 'Settings' }]} />
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
     <div>
-    <h1 className="text-2xl font-bold flex items-center gap-2">
+    <h1 className="text-2xl font-bold text-primary flex items-center gap-2">
      Settings
     </h1>
     <p className="text-sm text-muted-foreground">Configure lab and admin settings</p>
@@ -462,6 +531,35 @@ export default function AdminSettingsView() {
     </CardFooter>
     </Card>
 
+    {/* Server Capacity Limits */}
+    <Card className="shadow-sm hover:shadow-md transition-shadow">
+    <CardHeader className="pb-3">
+    <CardTitle className="text-base flex items-center gap-2">
+    <Cog className="h-4 w-4 text-indigo-500" /> Server Capacity Limits
+    </CardTitle>
+    <CardDescription>Set total CPU and RAM for the VM capacity calculator</CardDescription>
+    </CardHeader>
+    <CardContent className="space-y-4">
+    <div className="grid grid-cols-2 gap-4">
+    <div className="space-y-1.5">
+    <Label className="text-xs">Total vCPUs</Label>
+    <Input type="number" min="1" max="256" value={serverVcpus} onChange={(e) => setServerVcpus(e.target.value)} placeholder="e.g. 16" />
+    <p className="text-[10px] text-muted-foreground">Total logical CPU cores available on the host</p>
+    </div>
+    <div className="space-y-1.5">
+    <Label className="text-xs">Total RAM (GB)</Label>
+    <Input type="number" min="1" max="4096" value={serverRamGb} onChange={(e) => setServerRamGb(e.target.value)} placeholder="e.g. 64" />
+    <p className="text-[10px] text-muted-foreground">Total physical memory in GB</p>
+    </div>
+    </div>
+    </CardContent>
+    <CardFooter>
+    <Button onClick={handleSaveServerCapacity} disabled={serverCapLoading}>
+    {serverCapLoading ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Saving...</> : <><Save className="h-4 w-4 mr-2" /> Save Limits</>}
+    </Button>
+    </CardFooter>
+    </Card>
+
     {/* Guacamole Gateway */}
     <Card className="shadow-sm hover:shadow-md transition-shadow">
     <CardHeader className="pb-3">
@@ -501,6 +599,58 @@ export default function AdminSettingsView() {
     </Button>
     <Button onClick={handleSaveGuac} disabled={guacLoading}>
     {guacLoading ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Saving...</> : <><Save className="h-4 w-4 mr-2" /> Save Settings</>}
+    </Button>
+    </CardFooter>
+    </Card>
+
+    {/* OwnCloud */}
+    <Card className="shadow-sm hover:shadow-md transition-shadow">
+    <CardHeader className="pb-3">
+    <CardTitle className="text-base flex items-center gap-2">
+    <Globe className="h-4 w-4 text-blue-500" /> OwnCloud
+    </CardTitle>
+    <CardDescription>
+      Configure OwnCloud root credentials. Each new instructor is automatically
+      provisioned with an OwnCloud account (1 GB quota, member of the
+      &quot;instructor&quot; group).
+    </CardDescription>
+    </CardHeader>
+    <CardContent className="space-y-4">
+    <div className="space-y-1.5">
+    <Label className="text-xs">OwnCloud URL</Label>
+    <Input value={ocUrl} onChange={(e) => setOcUrl(e.target.value)} placeholder="https://owncloud.example.com" />
+    </div>
+    <div className="space-y-1.5">
+    <Label className="text-xs">Root Username</Label>
+    <Input value={ocUser} onChange={(e) => setOcUser(e.target.value)} placeholder="admin" />
+    </div>
+    <div className="space-y-1.5">
+    <Label className="text-xs">Root Password {ocPwSet && <span className="text-muted-foreground font-normal">(leave blank to keep current)</span>}</Label>
+    <Input type="password" value={ocPw} onChange={(e) => setOcPw(e.target.value)} placeholder={ocPwSet ? "••••••••" : "Enter OwnCloud root password"} />
+    </div>
+    <div className="grid grid-cols-2 gap-3 pt-1">
+    <div className="rounded-md border bg-muted/30 px-3 py-2">
+    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Instructor quota</p>
+    <p className="text-sm font-medium">1 GB</p>
+    </div>
+    <div className="rounded-md border bg-muted/30 px-3 py-2">
+    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Instructor group</p>
+    <p className="text-sm font-medium">instructor</p>
+    </div>
+    </div>
+    {ocTestResult && (
+      <div className={`flex items-start gap-2 p-3 rounded-lg text-xs ${ocTestResult.ok ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400' : 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400'}`}>
+      {ocTestResult.ok ? <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" /> : <XCircle className="h-4 w-4 shrink-0 mt-0.5" />}
+      <p>{ocTestResult.message}</p>
+      </div>
+    )}
+    </CardContent>
+    <CardFooter className="flex gap-2">
+    <Button onClick={handleTestOwnCloud} disabled={ocLoading} variant="outline">
+    {ocLoading ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Testing...</> : <><Globe className="h-4 w-4 mr-2" /> Test Connection</>}
+    </Button>
+    <Button onClick={handleSaveOwnCloud} disabled={ocLoading}>
+    {ocLoading ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Saving...</> : <><Save className="h-4 w-4 mr-2" /> Save Settings</>}
     </Button>
     </CardFooter>
     </Card>

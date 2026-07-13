@@ -122,68 +122,37 @@ export async function PATCH(request: Request) {
     });
 
     // ─── Sous-groupe auto-assignment ──────────────────────────────────────────
-    // If this lab has a "level" (e.g. "4ème année ING"), and the student is
-    // already in another lab with the same level and has a sous-groupe there,
-    // auto-assign them to the sous-groupe with the same name in the new lab.
+    // If the student is already in a sous-groupe at the same level,
+    // auto-assign them to that same group (no need to re-join).
     if (lab.level) {
       try {
-        // Find the student's existing labs with the same level
-        const sameLevelLabs = await db.studentLab.findMany({
+        const levelId = parseInt(lab.level);
+        const existingMembership = await db.sousGroupeMember.findFirst({
           where: { studentId: parseInt(studentId) },
-          include: { lab: { select: { id: true, level: true } } },
+          include: {
+            sousGroupe: {
+              select: { id: true, name: true, levelId: true },
+            },
+          },
         });
 
-        const existingLabWithSameLevel = sameLevelLabs.find(
-          (sl) => sl.labId !== parseInt(labId) && sl.lab.level === lab.level
-        );
-
-        if (existingLabWithSameLevel) {
-          // Find the student's sous-groupe in the existing lab
-          const existingMembership = await db.sousGroupeMember.findFirst({
-            where: { studentId: parseInt(studentId) },
-            include: {
-              sousGroupe: {
-                select: { id: true, name: true, labId: true },
-              },
-            },
-          });
-
-          if (existingMembership) {
-            const sgName = existingMembership.sousGroupe.name;
-
-            // Find or create a sous-groupe with the same name in the new lab
-            let targetSg = await db.sousGroupe.findFirst({
-              where: { labId: parseInt(labId), name: sgName },
-            });
-
-            if (!targetSg) {
-              // Create the sous-groupe in the new lab
-              targetSg = await db.sousGroupe.create({
-                data: {
-                  name: sgName,
-                  labId: parseInt(labId),
-                },
-              });
-            }
-
-            // Assign the student to the sous-groupe in the new lab
-            await db.sousGroupeMember.upsert({
-              where: {
-                sousGroupeId_studentId: {
-                  sousGroupeId: targetSg.id,
-                  studentId: parseInt(studentId),
-                },
-              },
-              update: {},
-              create: {
-                sousGroupeId: targetSg.id,
+        if (existingMembership && existingMembership.sousGroupe.levelId === levelId) {
+          // Student is already in a sous-groupe at this level — auto-assign
+          await db.sousGroupeMember.upsert({
+            where: {
+              sousGroupeId_studentId: {
+                sousGroupeId: existingMembership.sousGroupe.id,
                 studentId: parseInt(studentId),
               },
-            });
-          }
+            },
+            update: {},
+            create: {
+              sousGroupeId: existingMembership.sousGroupe.id,
+              studentId: parseInt(studentId),
+            },
+          });
         }
       } catch (sgError) {
-        // Sous-groupe auto-assignment is best-effort; don't fail the lab join
         console.error("Sous-groupe auto-assignment error:", sgError);
       }
     }

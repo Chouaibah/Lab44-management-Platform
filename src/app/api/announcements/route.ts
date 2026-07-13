@@ -164,6 +164,29 @@ export async function POST(request: Request) {
       },
     });
 
+    // Send notifications to enrolled students
+    try {
+      const labStudents = await db.studentLab.findMany({
+        where: { labId: parseInt(labId) },
+        select: { studentId: true },
+      });
+      if (labStudents.length > 0) {
+        await db.notification.createMany({
+          data: labStudents.map(sl => ({
+            type: "announcement",
+            title: "New Announcement",
+            message: `${title.trim()} — ${content.trim().substring(0, 100)}${content.trim().length > 100 ? '...' : ''}`,
+            userId: sl.studentId,
+            userRole: "student",
+            labId: parseInt(labId),
+            link: null,
+          })),
+        });
+      }
+    } catch (notifErr) {
+      console.error("Failed to send announcement notifications:", notifErr);
+    }
+
     await logAudit({
       type: "announcement",
       action: "create",

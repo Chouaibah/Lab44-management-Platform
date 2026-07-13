@@ -175,8 +175,12 @@ export function useVmActions(refreshData: RefreshFn) {
         body: JSON.stringify({ action }),
       });
       const data = await res.json();
-      toast.success(data.message || `VM ${action} successful`);
-      await refreshData(true);
+      if (res.ok) {
+        toast.success(data.message || `VM ${action} successful`);
+        await refreshData(true);
+      } else {
+        toast.error(data.error || `Failed to ${action} VM`);
+      }
     } catch {
       toast.error(`Failed to ${action} VM`);
     } finally {

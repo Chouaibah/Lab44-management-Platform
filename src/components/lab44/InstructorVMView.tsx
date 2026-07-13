@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
-  Monitor, CheckCircle2, Clock, XCircle, HardDrive,
+  Monitor, CheckCircle2, Clock, XCircle,
   RefreshCw, Plus, Filter, Trash2, Unplug,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -27,7 +27,9 @@ import {
   ApproveDialog, RejectDialog, DeleteDialog,
   BatchDeleteDialog, BatchRejectDialog,
   VmDetailsDialog, ConsoleConnectDialog, CreateVmDialog,
+  EditVmResourcesDialog,
 } from './instructor-vm/Dialogs';
+import type { EditVmResourcesState } from './instructor-vm/Dialogs';
 import {
   Tooltip, TooltipTrigger, TooltipContent, TooltipProvider,
 } from '@/components/ui/tooltip';
@@ -75,6 +77,11 @@ export default function InstructorVMView() {
   const [convertDialog, setConvertDialog] = useState<{ open: boolean; vmUuid: string; vmName: string }>({ open: false, vmUuid: '', vmName: '' });
   const [convertTemplateName, setConvertTemplateName] = useState('');
 
+  const [editResState, setEditResState] = useState<EditVmResourcesState>({ open: false, vmUuid: '', vmName: '', currentVcpus: 1, currentMemoryMB: 1024 });
+  const [editResVcpus, setEditResVcpus] = useState(1);
+  const [editResMemoryMB, setEditResMemoryMB] = useState(1024);
+  const [editResLoading, setEditResLoading] = useState(false);
+
   const openConvertDialog = (vmUuid: string, vmName: string) => {
     setConvertTemplateName(vmName || '');
     setConvertDialog({ open: true, vmUuid, vmName: vmName || '' });
@@ -103,6 +110,34 @@ export default function InstructorVMView() {
     setConvertLoading(null);
   };
 
+  const openEditResources = (vmUuid: string, vmName: string, vcpus: number, memoryMB: number) => {
+    setEditResState({ open: true, vmUuid, vmName, currentVcpus: vcpus, currentMemoryMB: memoryMB });
+    setEditResVcpus(vcpus);
+    setEditResMemoryMB(memoryMB);
+  };
+
+  const handleEditResources = async () => {
+    setEditResLoading(true);
+    try {
+      const res = await fetch(`/api/xapi/vms/${editResState.vmUuid}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set-resources', vcpus: editResVcpus, memoryMB: editResMemoryMB }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(`VM resources updated (${editResVcpus} vCPUs, ${(editResMemoryMB / 1024).toFixed(1)} GB RAM)`);
+        setEditResState({ open: false, vmUuid: '', vmName: '', currentVcpus: 1, currentMemoryMB: 1024 });
+        refreshData();
+      } else {
+        toast.error(data.error || 'Failed to update resources');
+      }
+    } catch {
+      toast.error('Connection error');
+    }
+    setEditResLoading(false);
+  };
+
   if (!instructor) return null;
 
   const labName = labs.find(l => l.id === activeLabId)?.name || instructor.labName || 'Lab';
@@ -118,11 +153,17 @@ export default function InstructorVMView() {
       {/* ── Page header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-xl font-semibold">VM Monitor</h1>
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+
+        <span className="text-primary font-semibold">VM Monitor</span>
+        </h1>
           <p className="text-sm text-muted-foreground">
             Manage virtual machines for your students
           </p>
         </div>
+
+
+
 
         <div className="flex items-center gap-2 flex-wrap">
           <Button variant="outline" size="sm" onClick={() => refreshData()} disabled={refreshing} className="gap-1">
@@ -218,6 +259,7 @@ export default function InstructorVMView() {
             onDeleteRequest={actions.openDeleteDialog}
             onConvertToTemplate={openConvertDialog}
             convertLoading={convertLoading}
+            onEditResources={openEditResources}
           />
 
           {/* ── Approved batch action bar ── */}
@@ -265,7 +307,7 @@ export default function InstructorVMView() {
               <CardContent className="py-12">
                 <div className="flex flex-col items-center justify-center text-center">
                   <Monitor className="h-10 w-10 text-muted-foreground/40 mb-3" />
-                  <p className="text-sm text-muted-foreground">No VM requests from your students yet</p>
+                  <p className="text-sm text-muted-foreground">No VM requests yet</p>
                 </div>
               </CardContent>
             </Card>
@@ -349,6 +391,17 @@ export default function InstructorVMView() {
         onSelectTemplate={createVm.setSelectedTemplate}
         onClose={() => createVm.setCreateVmDialog(false)}
         onConfirm={createVm.handleCreateVm}
+      />
+
+      <EditVmResourcesDialog
+        state={editResState}
+        vcpus={editResVcpus}
+        memoryMB={editResMemoryMB}
+        loading={editResLoading}
+        onClose={() => setEditResState({ open: false, vmUuid: '', vmName: '', currentVcpus: 1, currentMemoryMB: 1024 })}
+        onVcpusChange={setEditResVcpus}
+        onMemoryChange={setEditResMemoryMB}
+        onConfirm={handleEditResources}
       />
 
       <Dialog open={convertDialog.open} onOpenChange={(open) => { if (!open) setConvertDialog({ open: false, vmUuid: '', vmName: '' }); }}>

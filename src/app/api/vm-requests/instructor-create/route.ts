@@ -29,15 +29,21 @@ export async function POST(request: Request) {
     const effectiveLabId = labId || instructor.labId;
     const protocol = "rdp";
 
-    // Build a clean VM name from instructor's name
-    const instructorName = [instructor.firstName, instructor.lastName].filter(Boolean).join("-") || `Instructor-${instructor.id}`;
-    const displayName = `${instructorName}-VM`;
+    // Build a clean VM name from instructor's display name + template name
+    const instructorName = (instructor.displayName || instructor.username)
+      .replace(/[^a-zA-Z0-9-_]/g, "-")
+      .substring(0, 30);
+    const cleanTemplateName = (templateName || "VM")
+      .replace(/[^a-zA-Z0-9-_]/g, "-")
+      .substring(0, 20);
+    const baseName = `${instructorName}-${cleanTemplateName}`;
+    const displayName = `${baseName}-1`;
 
     // 1. Create VM request record (auto-approved)
     const vmRequest = await db.vMRequest.create({
       data: {
         studentDbId: instructor.id,
-        studentName: `${instructor.firstName || ''} ${instructor.lastName || ''} (Instructor)`,
+        studentName: `${instructor.displayName || instructor.username} (Instructor)`,
         studentId: `ins-${instructor.id}`,
         labId: effectiveLabId ? parseInt(String(effectiveLabId)) : null,
         templateUuid,
@@ -55,24 +61,24 @@ export async function POST(request: Request) {
 
     // 2. Provision VM on XCP-ng
     try {
-      // Count existing VMs for this instructor with the same template for sequential suffix
-      const basePrefix = `${instructorName}`;
+      // Count existing VMs for this instructor with the same base name for sequential suffix
+      const basePrefix = `${baseName}-`;
       const existingVMs = await db.vMRequest.findMany({
         where: {
-          studentDbId: instructor.id,
+          studentId: `ins-${instructor.id}`,
           vmName: { startsWith: basePrefix },
           status: "approved",
+          id: { not: vmRequest.id },
         },
       });
       let maxCount = 0;
       for (const vm of existingVMs) {
         const suffix = (vm.vmName || "").slice(basePrefix.length);
         const num = parseInt(suffix, 10);
-        // Only count small sequential suffixes (<= 999), ignore old timestamp-based names
         if (!isNaN(num) && num > maxCount && num <= 999) maxCount = num;
       }
       const nextCount = maxCount + 1;
-      const vmNameToUse = `${basePrefix}${nextCount}`
+      const vmNameToUse = `${baseName}-${nextCount}`
         .replace(/[^a-zA-Z0-9-_]/g, "-")
         .substring(0, 60);
       const result = await provisionVM(templateUuid, vmNameToUse);

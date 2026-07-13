@@ -131,8 +131,9 @@ export async function approveVMRequest(opts: ApproveOptions) {
         }
 
         // 4. Create a new connection for this VM
+        const nameSuffix = (updateData.vmUuid as string || "").replace(/-/g, '').slice(-8);
         const connectionName =
-        `${updateData.vmName || "VM"}-${protocol}`;
+        `${updateData.vmName || "VM"}-${protocol}-${nameSuffix}`;
 
         const port = protocol === "ssh" ? "22" : "3389";
         // OS-level credentials for the VM (not the Guacamole account)

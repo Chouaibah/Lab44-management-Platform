@@ -17,6 +17,7 @@
 const SENSITIVE_SETTING_KEYS = new Set([
   'xcpng_password',
   'guacamole_root_password',
+  'owncloud_admin_password',
 ]);
 
 /**
@@ -28,6 +29,7 @@ const CREDENTIAL_FIELD_NAMES = new Set([
   'guacPassword',
   'guacamole_root_password',
   'xcpng_password',
+  'owncloud_admin_password',
   'secret',
   'token',
 ]);

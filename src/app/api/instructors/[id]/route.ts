@@ -1,6 +1,10 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import {
+  deleteOwnCloudUser,
+  clearInstructorOwnCloudPassword,
+} from "@/lib/owncloud";
 
 export async function GET(
   _request: Request,
@@ -184,6 +188,18 @@ export async function DELETE(
 
     // InstructorLab records cascade delete due to schema
     await db.instructor.delete({ where: { id: instructorId } });
+
+    // Best-effort cleanup of the corresponding OwnCloud account.
+    // Non-fatal: if OwnCloud is unreachable, we still complete the DB delete.
+    try {
+      const ocResult = await deleteOwnCloudUser(instructor.username);
+      if (!ocResult.ok) {
+        console.warn(`OwnCloud account deletion for "${instructor.username}" failed: ${ocResult.error}`);
+      }
+      await clearInstructorOwnCloudPassword(instructor.username);
+    } catch (ocErr) {
+      console.warn(`OwnCloud account deletion for "${instructor.username}" threw:`, ocErr);
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {

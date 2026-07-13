@@ -4,11 +4,27 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { filterSensitiveSettings } from "@/lib/auth";
 import { logAudit } from "@/lib/audit-log";
+import { OWNLOUD_USER_PW_KEY_REGEX } from "@/lib/owncloud";
 
 const SENSITIVE_KEYS = new Set([
   "xcpng_password",
   "guacamole_root_password",
+  "owncloud_admin_password",
 ]);
+
+/**
+ * Strip per-instructor OwnCloud password entries (and any other sensitive
+ * keys) from a settings map before sending it to the client.
+ */
+function sanitizeSettings(map: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(map)) {
+    if (SENSITIVE_KEYS.has(k)) continue;
+    if (OWNLOUD_USER_PW_KEY_REGEX.test(k)) continue;
+    out[k] = v;
+  }
+  return out;
+}
 
 async function ensureDefaults() {
   const count = await db.setting.count();
@@ -29,20 +45,17 @@ export async function GET() {
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     }
 
-        await ensureDefaults();
-        const result = await getSettingsMap();
+    await ensureDefaults();
+    const result = await getSettingsMap();
 
+    // Both branches use the same sanitizer — per-instructor OwnCloud
+    // passwords must never leave the server via this bulk endpoint
+    // (they're only retrievable via /api/owncloud/provision).
     if (session.role !== "admin") {
-      const safeResult: Record<string, string> = {};
-      for (const [key, value] of Object.entries(result)) {
-        if (!SENSITIVE_KEYS.has(key)) {
-          safeResult[key] = value;
-        }
-      }
-      return NextResponse.json(safeResult);
+      return NextResponse.json(sanitizeSettings(result));
     }
 
-    return NextResponse.json(filterSensitiveSettings(result));
+    return NextResponse.json(sanitizeSettings(result));
   } catch (error) {
     console.error("Settings error:", error);
     return NextResponse.json({ error: "Failed to load settings." }, { status: 500 });

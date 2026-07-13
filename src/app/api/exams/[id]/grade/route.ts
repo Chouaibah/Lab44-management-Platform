@@ -73,8 +73,8 @@ export async function PATCH(
       });
       const totalPoints = allAnswers.reduce((sum, a) => sum + (a.pointsEarned ?? 0), 0);
       const maxPoints   = allAnswers.reduce((sum, a) => sum + (a.question?.points ?? 0), 0);
-      const score       = maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 10000) / 100 : 0;
-      const passed      = exam.passingScore != null ? score >= exam.passingScore : null;
+      const score       = maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 20 * 100) / 100 : 0;
+      const passed      = score >= 10;
 
       await tx.examAttempt.update({
         where: { id: parsedAttemptId },

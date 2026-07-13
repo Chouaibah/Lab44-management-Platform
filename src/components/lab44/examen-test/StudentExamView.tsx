@@ -102,7 +102,7 @@ function formatRemainingTime(publishedAt: string | null, durationMinutes: number
 
 // ─── Results Dialog ─────────────────────────────────────────────────────────────
 
-function ExamResultsView({ attempt, examTitle, onClose }: {
+function ExamResultsView({ attempt, examTitle, labName, onClose }: {
   attempt: {
     id: number;
     score: number | null;
@@ -112,6 +112,7 @@ function ExamResultsView({ attempt, examTitle, onClose }: {
     timeSpent: number | null;
   };
   examTitle: string;
+  labName?: string;
   onClose: () => void;
 }) {
   const [gradedAnswers, setGradedAnswers] = useState<GradedAnswer[]>([]);
@@ -145,7 +146,7 @@ function ExamResultsView({ attempt, examTitle, onClose }: {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold">{examTitle} — Results</h2>
-          <p className="text-sm text-muted-foreground mt-1">Detailed breakdown of your attempt</p>
+          {labName && <p className="text-sm text-muted-foreground">{labName}</p>}
         </div>
         <Button variant="outline" size="sm" onClick={onClose}>
           Back to Exams
@@ -158,7 +159,7 @@ function ExamResultsView({ attempt, examTitle, onClose }: {
           <div className="flex flex-col sm:flex-row items-center gap-6">
             <div className="text-center">
               <div className={`text-4xl font-bold ${scoreColor}`}>
-                {scorePercent.toFixed(1)}%
+                {scorePercent.toFixed(1)}/20
               </div>
               <div className="text-sm text-muted-foreground mt-1">Score</div>
             </div>
@@ -289,7 +290,7 @@ function ExamResultsView({ attempt, examTitle, onClose }: {
           <CardContent className="py-8 text-center">
             <p className="text-sm text-muted-foreground">Detailed results are not available for this attempt.</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Score: {scorePercent.toFixed(1)}% | Points: {attempt.totalPoints?.toFixed(1) ?? '—'}/{attempt.maxPoints?.toFixed(1) ?? '—'}
+              Score: {scorePercent.toFixed(1)}/20 | Points: {attempt.totalPoints?.toFixed(1) ?? '—'}/{attempt.maxPoints?.toFixed(1) ?? '—'}
             </p>
           </CardContent>
         </Card>
@@ -310,6 +311,7 @@ export default function StudentExamView() {
   const [viewingResults, setViewingResults] = useState<{
     attempt: StudentExam['lastAttempt'];
     examTitle: string;
+    labName?: string;
   } | null>(null);
   const [startingExam, setStartingExam] = useState<number | null>(null);
 
@@ -411,6 +413,7 @@ export default function StudentExamView() {
     setViewingResults({
       attempt: exam.lastAttempt,
       examTitle: exam.title,
+      labName: exam.labId ? labs.find(l => l.id === exam.labId)?.name : undefined,
     });
   };
 
@@ -426,6 +429,7 @@ export default function StudentExamView() {
         <ExamResultsView
           attempt={viewingResults.attempt!}
           examTitle={viewingResults.examTitle}
+          labName={viewingResults.labName}
           onClose={() => setViewingResults(null)}
         />
       </div>
@@ -442,11 +446,9 @@ export default function StudentExamView() {
       {/* Header */}
       <motion.div {...fadeSlide} className="mb-6">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30 shrink-0">
-            <ClipboardCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-          </div>
+
           <div>
-            <h1 className="text-xl font-bold">Exams</h1>
+            <h3 className="text-primary font-semibold">Exams</h3>
             <p className="text-sm text-muted-foreground">View available exams and your results</p>
           </div>
         </div>
@@ -524,11 +526,9 @@ export default function StudentExamView() {
                               </div>
                             );
                           })()}
-                          {exam.passingScore !== null && (
-                            <div className="text-xs text-muted-foreground">
-                              Passing score: {exam.passingScore}%
+                          <div className="text-xs text-muted-foreground">
+                              Passing score: 10/20
                             </div>
-                          )}
                           {exam.attemptCount > 0 && (
                             <div className="flex items-center gap-2 text-xs">
                               <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1">
@@ -600,6 +600,9 @@ export default function StudentExamView() {
                         <CardHeader className="pb-2">
                           <div className="flex items-start justify-between gap-2">
                             <CardTitle className="text-base leading-tight">{exam.title}</CardTitle>
+                            {exam.labId && labs.find(l => l.id === exam.labId) && (
+                              <span className="text-[10px] text-muted-foreground">{labs.find(l => l.id === exam.labId)?.name}</span>
+                            )}
                             {lastAttempt && <PassFailBadge passed={lastAttempt.passed} />}
                           </div>
                         </CardHeader>
@@ -608,7 +611,7 @@ export default function StudentExamView() {
                             <div className="space-y-2 mb-4">
                               <div className="flex items-center gap-4">
                                 <span className={`text-2xl font-bold ${scoreColor}`}>
-                                  {scorePercent.toFixed(1)}%
+                                  {scorePercent.toFixed(1)}/20
                                 </span>
                                 <div className="text-xs text-muted-foreground space-y-0.5">
                                   <div>{lastAttempt.totalPoints?.toFixed(1) ?? '—'} / {lastAttempt.maxPoints?.toFixed(1) ?? '—'} points</div>

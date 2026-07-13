@@ -145,7 +145,7 @@ function formatRemainingTime(publishedAt: string | null, durationMinutes: number
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default function InstructorExamView() {
-  const { auth, sousGroupes, selectedLabId, labs } = useLab44Store();
+  const { auth, sousGroupes, setSousGroupes, selectedLabId, labs } = useLab44Store();
   const instructor = auth.instructor;
   // Multi-lab support: effective lab ID
   const activeLabId = selectedLabId || instructor?.labId || 0;
@@ -198,10 +198,10 @@ export default function InstructorExamView() {
   const [gradeEdits, setGradeEdits] = useState<Record<number, string>>({});
   const [savingGrades, setSavingGrades] = useState(false);
 
-  // Lab sous-groupes
+  // Lab sous-groupes (server already filters by level)
   const labSousGroupes = useMemo(() =>
-    sousGroupes.filter(sg => sg.labId === activeLabId),
-    [sousGroupes, activeLabId]
+    sousGroupes,
+    [sousGroupes]
   );
 
   // ─── Data Fetching ────────────────────────────────────────────────────────
@@ -223,16 +223,21 @@ export default function InstructorExamView() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/exams?instructorId=${instructor.id}`);
-        const data = await res.json();
-        if (!cancelled && data.ok && Array.isArray(data.exams)) setExams(data.exams);
+        const [examsRes, sgRes] = await Promise.all([
+          fetch(`/api/exams?instructorId=${instructor.id}`),
+          fetch(`/api/sous-groupes?labId=${activeLabId}`),
+        ]);
+        const examsData = await examsRes.json();
+        const sgData = await sgRes.json();
+        if (!cancelled && examsData.ok && Array.isArray(examsData.exams)) setExams(examsData.exams);
+        if (!cancelled && sgData.sousGroupes) setSousGroupes(sgData.sousGroupes);
       } catch {
-        if (!cancelled) toast.error('Failed to load exams');
+        if (!cancelled) toast.error('Failed to load data');
       }
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [instructor]);
+  }, [instructor, activeLabId]);
 
   // ─── Reset Form ───────────────────────────────────────────────────────────
 
@@ -504,7 +509,7 @@ export default function InstructorExamView() {
         shuffleQuestions: examShuffle,
         showResults: examShowResults,
         maxAttempts: parseInt(examMaxAttempts) || 1,
-        passingScore: examPassingScore ? parseFloat(examPassingScore) : null,
+        passingScore: null,
         sousGroupeId: examSousGroupeId && examSousGroupeId !== 'all' ? parseInt(examSousGroupeId) : null,
         questions: validQuestions.map((q, i) => ({
           type: q.type,
@@ -671,11 +676,11 @@ export default function InstructorExamView() {
   // ─── Tab Config ───────────────────────────────────────────────────────────
 
   const tabItems: { key: TabView; label: string; icon: React.ReactNode }[] = [
-    { key: 'list', label: 'My Exams', icon: <ClipboardCheck className="h-3.5 w-3.5" /> },
-    { key: 'create', label: editingExamId ? 'Edit Exam' : 'Create Exam', icon: <Plus className="h-3.5 w-3.5" /> },
+    { key: 'list', label: 'My Exams' },
+    { key: 'create', label: editingExamId ? 'Edit Exam' : 'Create Exam' },
   ];
   if (tab === 'results') {
-    tabItems.push({ key: 'results', label: 'Results', icon: <Eye className="h-3.5 w-3.5" /> });
+    tabItems.push({ key: 'results', label: 'Results' });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -694,7 +699,7 @@ export default function InstructorExamView() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
-              <ClipboardCheck className="h-6 w-6 text-violet-500" />
+
               <span className="text-primary font-semibold">Exam Management</span>
             </h1>
             <p className="text-sm text-muted-foreground">
@@ -773,7 +778,7 @@ export default function InstructorExamView() {
                               {examStatusBadge(exam.status)}
                               {exam.sousGroupeId && (
                                 <Badge variant="outline" className="text-[10px]">
-                                  Group filter
+                                  {labSousGroupes.find(sg => sg.id === exam.sousGroupeId)?.name || `Group #${exam.sousGroupeId}`}
                                 </Badge>
                               )}
                             </div>
@@ -792,11 +797,9 @@ export default function InstructorExamView() {
                               <span className="flex items-center gap-1">
                                 <ClipboardCheck className="h-3 w-3" /> {exam.attemptCount || 0} attempts
                               </span>
-                              {exam.passingScore != null && (
-                                <span className="flex items-center gap-1">
-                                  <CheckCircle2 className="h-3 w-3" /> Pass: {exam.passingScore}%
-                                </span>
-                              )}
+                              <span className="flex items-center gap-1">
+                                <CheckCircle2 className="h-3 w-3" /> Pass: 10/20
+                              </span>
                               <span>· {timeAgo(exam.createdAt)}</span>
                             </div>
                             {(exam as any).publishedAt && (
@@ -814,9 +817,9 @@ export default function InstructorExamView() {
                               <div className="mt-2 flex items-center gap-2">
                                 <span className="text-[10px] text-muted-foreground">Avg Score:</span>
                                 <span className={`text-xs font-bold ${
-                                  exam.averageScore >= (exam.passingScore || 50) ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
+                                  exam.averageScore >= 10 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
                                 }`}>
-                                  {Math.round(exam.averageScore)}%
+                                  {exam.averageScore.toFixed(1)}/20
                                 </span>
                               </div>
                             )}
@@ -873,7 +876,7 @@ export default function InstructorExamView() {
                             )}
 
                             {/* Delete button - only for drafts with no attempts */}
-                            {isDraft && !(exam.attemptCount > 0) && (
+                            {isDraft && !(exam.attemptCount ?? 0 > 0) && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -946,17 +949,6 @@ export default function InstructorExamView() {
                       max="10"
                       value={examMaxAttempts}
                       onChange={(e) => setExamMaxAttempts(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium">Passing Score (%)</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      placeholder="e.g. 50"
-                      value={examPassingScore}
-                      onChange={(e) => setExamPassingScore(e.target.value)}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -1210,7 +1202,7 @@ export default function InstructorExamView() {
                                           : 'bg-muted hover:bg-muted/80 text-muted-foreground'
                                       }`}
                                     >
-                                      True
+                                    True {q.correctAnswer === 'true' && '✓'}
                                     </button>
                                     <button
                                       onClick={() => updateQuestion(qIndex, 'correctAnswer', 'false')}
@@ -1220,7 +1212,7 @@ export default function InstructorExamView() {
                                           : 'bg-muted hover:bg-muted/80 text-muted-foreground'
                                       }`}
                                     >
-                                      False
+                                    False {q.correctAnswer === 'false' && '✓'}
                                     </button>
                                   </div>
                                 </div>
@@ -1333,7 +1325,7 @@ export default function InstructorExamView() {
                       <tbody>
                         {attempts.map((attempt) => {
                           const passed = attempt.passed;
-                          const scorePercent = attempt.score != null ? Math.round(attempt.score) : null;
+                          const scoreValue = attempt.score != null ? attempt.score : null;
 
                           return (
                             <tr key={attempt.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors">
@@ -1365,11 +1357,11 @@ export default function InstructorExamView() {
                               </td>
                               <td className="p-3 text-center">
                                 <span className={`text-sm font-bold ${
-                                  scorePercent == null ? 'text-muted-foreground'
+                                  scoreValue == null ? 'text-muted-foreground'
                                   : passed ? 'text-emerald-600 dark:text-emerald-400'
                                   : 'text-red-600 dark:text-red-400'
                                 }`}>
-                                  {scorePercent != null ? `${scorePercent}%` : '—'}
+                                  {scoreValue != null ? `${scoreValue.toFixed(1)}/20` : '—'}
                                 </span>
                               </td>
                               <td className="p-3 text-center text-xs text-muted-foreground">
@@ -1556,10 +1548,11 @@ export default function InstructorExamView() {
                         size="sm"
                         className="text-xs h-7"
                         onClick={() => {
-                          const mainTemplate = JSON_TEMPLATE.split('\n\n/*')[0];
-                          navigator.clipboard.writeText(mainTemplate);
-                          setJsonCopied(true);
-                          setTimeout(() => setJsonCopied(false), 2000);
+                          const text = JSON_TEMPLATE.split('\n\n/*')[0];
+                          navigator.clipboard.writeText(text).then(() => {
+                            setJsonCopied(true);
+                            setTimeout(() => setJsonCopied(false), 2000);
+                          }).catch(() => {});
                         }}
                       >
                         {jsonCopied ? <Check className="h-3 w-3 mr-1 text-emerald-500" /> : <Copy className="h-3 w-3 mr-1" />}
@@ -1731,14 +1724,14 @@ export default function InstructorExamView() {
           <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <Eye className="h-5 w-5 text-violet-500" />
+
                 Student Responses
               </DialogTitle>
               <DialogDescription>
                 {viewingAttempt?.student
                   ? `${viewingAttempt.student.lastName} ${viewingAttempt.student.firstName} (${viewingAttempt.student.studentId})`
                   : `Attempt #${viewingAttempt?.attemptNumber}`}
-                {' · '}Score: {viewingAttempt?.score != null ? `${Math.round(viewingAttempt.score)}%` : '—'}
+                {' · '}Score: {viewingAttempt?.score != null ? `${viewingAttempt.score.toFixed(1)}/20` : '—'}
                 {' · '}Points: {viewingAttempt?.totalPoints ?? '—'}/{viewingAttempt?.maxPoints ?? '—'}
               </DialogDescription>
             </DialogHeader>
@@ -1746,20 +1739,7 @@ export default function InstructorExamView() {
             {viewingAttempt && (
               <div className="flex-1 overflow-y-auto space-y-3 pr-1 custom-scrollbar -mx-1 px-1">
                 {(() => {
-                  const answers = (viewingAttempt as Record<string, unknown>)?.answers as Array<{
-                    id: number;
-                    questionId: number;
-                    answer: string | null;
-                    pointsEarned: number | null;
-                    question: {
-                      id: number;
-                      type: string;
-                      text: string;
-                      points: number;
-                      correctAnswer: string | null;
-                      options?: string | null;
-                    };
-                  }> | undefined;
+                  const answers = (viewingAttempt as unknown as Record<string, unknown>)?.answers as any[];
 
                   if (!answers || answers.length === 0) {
                     return (
@@ -1780,13 +1760,7 @@ export default function InstructorExamView() {
                     return (
                       <Card
                         key={a.id}
-                        className={`shadow-sm border-l-4 ${
-                          isCorrect
-                            ? 'border-l-emerald-500'
-                            : a.answer
-                              ? 'border-l-red-500'
-                              : 'border-l-amber-500'
-                        }`}
+                        className="shadow-sm"
                       >
                         <CardContent className="p-4">
                           <div className="flex items-start justify-between gap-3">
@@ -1835,10 +1809,10 @@ export default function InstructorExamView() {
                               {q.type === 'true_false' && (
                                 <div className="flex gap-2 mb-2 text-xs">
                                   <span className={`px-2.5 py-1.5 rounded ${q.correctAnswer === 'true' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : a.answer === 'true' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-muted/50'}`}>
-                                    True {q.correctAnswer === 'true' && '✓'} {a.answer === 'true' && q.correctAnswer !== 'true' && '✗ Student'}
+                                    True
                                   </span>
                                   <span className={`px-2.5 py-1.5 rounded ${q.correctAnswer === 'false' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : a.answer === 'false' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-muted/50'}`}>
-                                    False {q.correctAnswer === 'false' && '✓'} {a.answer === 'false' && q.correctAnswer !== 'false' && '✗ Student'}
+                                    False
                                   </span>
                                 </div>
                               )}
