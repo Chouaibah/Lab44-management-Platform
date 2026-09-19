@@ -61,14 +61,30 @@ export async function createSession(payload: {
 
 // ─── Cookie management ────────────────────────────────────────────────────────
 
+/**
+ * Whether an insecure (non-HTTPS) origin may carry the session cookie.
+ *
+ * Compared against the literal "true" on purpose: testing the raw value for
+ * truthiness would treat the STRING "false" as enable-insecure, so an operator
+ * writing `ALLOW_INSECURE_COOKIES=false` — the safe setting — would silently get
+ * cookies sent over plain HTTP.
+ */
+function allowInsecureCookies(): boolean {
+  return process.env.ALLOW_INSECURE_COOKIES === 'true';
+}
+
 /** Write the session JWT into an httpOnly cookie. */
 export async function setSessionCookie(token: string): Promise<void> {
   const cookieStore = await cookies();
+  const insecureAllowed = allowInsecureCookies();
   cookieStore.set(COOKIE_NAME, token, {
     httpOnly: true,
-    // Secure only in production — unless ALLOW_INSECURE_COOKIES is set for
-    // local HTTPS-less dev environments.
-    secure: process.env.NODE_ENV === 'production' && !process.env.ALLOW_INSECURE_COOKIES,
+    // "Secure" cookies are only stored over HTTPS by browsers. Browsers make an
+    // exception for http://localhost, but NOT for a LAN address, so a Secure
+    // cookie silently disappears when the app is used as http://192.168.x.x:3000.
+    // Set ALLOW_INSECURE_COOKIES=true (compose does by default) while serving
+    // plain HTTP, and false once the app is behind HTTPS.
+    secure: process.env.NODE_ENV === 'production' && !insecureAllowed,
     sameSite: 'lax',
     path: '/',
     maxAge: SESSION_DURATION_SECONDS,

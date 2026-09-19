@@ -68,7 +68,7 @@ export async function GET(
         // If the student already has a provisioned connection, reuse it
         if (request.guacConnectionId && request.guacConnectionId !== "N/A" && request.guacUsername) {
           const { token: rootToken, dataSource, baseUrl } = await getGuacamoleToken(
-            guacUrl, guacRootUser, guacRootPass
+            guacUrl, guacRootUser, guacRootPass, map.guacamole_public_url
           );
 
           // Create the temporary user and grant access to the existing connection
@@ -76,12 +76,15 @@ export async function GET(
           await grantGuacamoleAccess(baseUrl, rootToken, dataSource, tempUsername, request.guacConnectionId);
 
           // Get a token for this temporary user
-          const userAuth = await getGuacamoleToken(baseUrl, tempUsername, tempPassword);
+          const userAuth = await getGuacamoleToken(
+            baseUrl, tempUsername, tempPassword, map.guacamole_public_url
+          );
 
           return NextResponse.json({
             identifier: request.guacConnectionId,
             dataSource: userAuth.dataSource,
-            url: userAuth.baseUrl,
+            // The browser must use the public URL, not the Docker-internal one.
+            url: userAuth.publicBaseUrl,
             authToken: userAuth.token,
           });
         }
@@ -124,16 +127,19 @@ export async function GET(
           protocol,
           currentIp,
           vmUser,
-          vmPass
+          vmPass,
+          map.guacamole_public_url
         );
 
         // Get a token for the temp user using the resolved base URL
-        const userAuth = await getGuacamoleToken(provRes.baseUrl, tempUsername, tempPassword);
+        const userAuth = await getGuacamoleToken(
+          provRes.baseUrl, tempUsername, tempPassword, map.guacamole_public_url
+        );
 
         return NextResponse.json({
           identifier: provRes.connId,
           dataSource: userAuth.dataSource,
-          url: userAuth.baseUrl,
+          url: userAuth.publicBaseUrl,
           authToken: userAuth.token,
         });
       } catch (error: any) {
@@ -166,7 +172,7 @@ export async function GET(
     // Ensure the student's Guacamole user exists with the correct password
     try {
       const { token: adminToken, dataSource: adminDs, baseUrl: adminBaseUrl } = await getGuacamoleToken(
-        guacUrl, guacRootUser, guacRootPass
+        guacUrl, guacRootUser, guacRootPass, map.guacamole_public_url
       );
       await ensureGuacamoleUser(adminBaseUrl, adminToken, adminDs, guacUsername, guacPassword);
     } catch (err: any) {
@@ -175,11 +181,13 @@ export async function GET(
 
     // Try to get a fresh student token
     try {
-      const studentAuth = await getGuacamoleToken(guacUrl, guacUsername, guacPassword);
+      const studentAuth = await getGuacamoleToken(
+        guacUrl, guacUsername, guacPassword, map.guacamole_public_url
+      );
       return NextResponse.json({
         identifier: connectionId,
         dataSource: studentAuth.dataSource,
-        url: studentAuth.baseUrl,
+        url: studentAuth.publicBaseUrl,
         authToken: studentAuth.token,
       });
     } catch (error: any) {

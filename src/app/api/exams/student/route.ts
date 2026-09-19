@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
+import { handleAuthError } from "@/lib/api-error";
 
 // GET /api/exams/student — students only
 // studentId comes from the SESSION, never from query params.
@@ -108,6 +109,8 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ ok: true, exams: result });
   } catch (error) {
+    const authResponse = handleAuthError(error);
+    if (authResponse) return authResponse;
     console.error("Student exams list error:", error);
     return NextResponse.json({ ok: false, error: "Failed to load student exams." }, { status: 500 });
   }

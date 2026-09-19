@@ -11,7 +11,12 @@
  *     ciphertexts every time, preventing frequency analysis.
  *
  * Key management:
- *   - Set ENCRYPTION_KEY to a random 32-char string (use `openssl rand -base64 32`).
+ *   - Set ENCRYPTION_KEY to a random 32-byte value (use `openssl rand -hex 16`,
+ *     which yields exactly 32 characters).
+ *   - A value that is not exactly 32 bytes is accepted but hashed with SHA-256
+ *     to derive the key, so common alternatives such as
+ *     `openssl rand -base64 32` (44 characters) work too instead of throwing at
+ *     runtime. A warning is logged once so the misconfiguration is visible.
  *   - The key is imported once and cached — `crypto.subtle.importKey` is a
  *     synchronous-style async call but it is not cheap; calling it per-request
  *     would add measurable latency.
@@ -19,10 +24,15 @@
  *     from `auth.ts` in routes that don't use encryption doesn't crash the server.
  */
 
+import { createHash } from 'crypto';
+
 const ENCRYPTION_KEY_RAW = process.env.ENCRYPTION_KEY;
 
 /** Singleton CryptoKey, imported once and reused. */
 let _cachedKey: CryptoKey | null = null;
+
+/** Set once we have warned about a non-32-byte key, to avoid log spam. */
+let _warnedAboutKeyLength = false;
 
 /** Import (or return cached) the AES-GCM CryptoKey. */
 async function getEncryptionKey(): Promise<CryptoKey> {
@@ -31,7 +41,7 @@ async function getEncryptionKey(): Promise<CryptoKey> {
   if (!ENCRYPTION_KEY_RAW && process.env.NODE_ENV === 'production') {
     throw new Error(
       '[auth/encryption] ENCRYPTION_KEY is not set. ' +
-      'Generate one with: openssl rand -base64 32',
+      'Generate one with: openssl rand -hex 16',
     );
   }
 
@@ -39,17 +49,28 @@ async function getEncryptionKey(): Promise<CryptoKey> {
     ENCRYPTION_KEY_RAW ?? 'change-me-32-chars-encryption-k!',
   );
 
-  // Validate key length (AES-256 requires exactly 32 bytes)
-  if (raw.length !== 32) {
-    throw new Error(
-      `[auth/encryption] ENCRYPTION_KEY must be exactly 32 bytes (got ${raw.length}). ` +
-      'Generate with: openssl rand -base64 32',
-    );
+  // AES-256 requires exactly 32 bytes. A 32-byte value is used verbatim (this is
+  // the documented format). Anything else — notably the 44-character output of
+  // `openssl rand -base64 32` — is hashed to 32 bytes rather than rejected, so a
+  // well-meaning but differently-encoded key still works.
+  let keyBytes: Uint8Array;
+  if (raw.length === 32) {
+    keyBytes = raw;
+  } else {
+    if (!_warnedAboutKeyLength) {
+      _warnedAboutKeyLength = true;
+      console.warn(
+        `[auth/encryption] ENCRYPTION_KEY is ${raw.length} bytes, not 32. ` +
+        'Deriving the key with SHA-256 instead. ' +
+        'For the documented format use: openssl rand -hex 16',
+      );
+    }
+    keyBytes = new Uint8Array(createHash('sha256').update(raw).digest());
   }
 
   _cachedKey = await crypto.subtle.importKey(
     'raw',
-    raw,
+    keyBytes,
     { name: 'AES-GCM' },
     false,
     ['encrypt', 'decrypt'],

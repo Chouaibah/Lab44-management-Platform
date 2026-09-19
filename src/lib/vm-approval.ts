@@ -19,17 +19,28 @@ export async function approveVMRequest(opts: ApproveOptions) {
   const existing = await db.vMRequest.findUnique({ where: { id } });
   if (!existing) throw new Error("Request not found.");
 
-  // Prepare the update payload for the VMRequest
+  // Only "rdp" and "ssh" are real Guacamole protocols — anything else falls back
+  // to rdp rather than being written straight into the connection config.
+  const protocol: "rdp" | "ssh" =
+    (accessProtocol || existing.accessProtocol || "rdp").toLowerCase() === "ssh"
+      ? "ssh"
+      : "rdp";
+
+  // Prepare the update payload for the VMRequest.
+  //
+  // vmUuid / vmName are deliberately NOT seeded from the template here. Doing so
+  // recorded the *template's* UUID as if it were the student's VM whenever
+  // cloning failed, after which the power/destroy actions would happily act on
+  // the template itself. They are now written only once a clone has succeeded.
   const updateData: Record<string, unknown> = {
-    status: "approved",
     note: note || existing.note,
     reviewedAt: new Date(),
-    accessProtocol: accessProtocol || existing.accessProtocol,
+    accessProtocol: protocol,
   };
 
-  updateData.vmUuid = existing.templateUuid || existing.vmUuid || null;
-  updateData.vmName = existing.templateName || existing.vmName || null;
-  updateData.vmIp = vmIp || existing.vmIp || null;
+  if (vmIp || existing.vmIp) updateData.vmIp = vmIp || existing.vmIp;
+  if (existing.vmUuid) updateData.vmUuid = existing.vmUuid;
+  if (existing.vmName) updateData.vmName = existing.vmName;
 
   // Provision the VM on XCP-ng if a template is specified
   const vmProvisionPromise = existing.templateUuid
@@ -64,6 +75,32 @@ export async function approveVMRequest(opts: ApproveOptions) {
   : Promise.resolve(null);
 
   const [vmResult, map] = await Promise.all([vmProvisionPromise, getSettingsMap()]);
+
+  // A request that asked for a template but whose clone failed must NOT be
+  // recorded as approved: there is no VM, and the row would otherwise keep the
+  // template UUID. Leave it pending so staff can retry.
+  if (existing.templateUuid && !vmResult) {
+    const marker = "[Auto] VM provisioning failed on XCP-ng — left pending, please retry.";
+    const nextNote =
+      existing.note && existing.note.includes(marker)
+        ? existing.note
+        : existing.note
+          ? `${existing.note} | ${marker}`
+          : marker;
+
+    await db.vMRequest.update({
+      where: { id },
+      data: { status: "pending", reviewedAt: new Date(), note: nextNote },
+    });
+
+    return {
+      ok: false,
+      error: "VM provisioning failed on XCP-ng. The request was left pending.",
+      vmName: existing.vmName,
+      vmUuid: existing.vmUuid,
+      vmIp: existing.vmIp,
+    };
+  }
 
   if (vmResult) {
     updateData.vmUuid = vmResult.uuid;
@@ -118,10 +155,7 @@ export async function approveVMRequest(opts: ApproveOptions) {
         // Fixed password: firstname + studentId (e.g., "Samir20210042")
         const guacPassword = deriveGuacPassword(student.firstName, student.studentId);
 
-        // Protocol: RDP or SSH
-        const protocol = (
-          (updateData.accessProtocol as string) || "rdp"
-        ).toLowerCase() as "rdp" | "ssh";
+        // Protocol was validated at the top of this function.
 
         // 3. Create the Guacamole user (silently skip if already exists)
         try {
@@ -170,7 +204,10 @@ export async function approveVMRequest(opts: ApproveOptions) {
     console.log("[Guac] VM has no IP yet — skipping connection creation. Will be created on first connect.");
   }
 
-  // Update the VM request in the database
+  // Update the VM request in the database. Reaching this point means either the
+  // clone succeeded or no template was requested, so the approval is real.
+  updateData.status = "approved";
+
   await db.vMRequest.update({
     where: { id },
     data: updateData,

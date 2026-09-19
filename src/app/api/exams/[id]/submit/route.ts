@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
+import { handleAuthError } from "@/lib/api-error";
 
 // POST /api/exams/[id]/submit — students only
 // studentId is taken from the SESSION, never from the request body,
@@ -69,18 +70,27 @@ export async function POST(
     // Auto-grade
     type ExamQ = typeof exam.questions[number];
     const questionMap = new Map<number, ExamQ>(exam.questions.map((q) => [q.id, q]));
-    let totalPoints = 0;
-    let maxPoints   = 0;
 
+    // The denominator is every question in the exam — NOT just the ones the
+    // student answered. Summing only answered questions let a student skip most
+    // of the exam and still score 20/20.
+    const maxPoints = exam.questions.reduce((sum, q) => sum + q.points, 0);
+
+    // Collapse duplicate questionIds (last answer wins) so a repeated id cannot
+    // double-count points or violate @@unique([attemptId, questionId]).
+    const submitted = new Map<number, string | null>();
+    for (const ans of answers) {
+      const questionId = Number(ans?.questionId);
+      if (!questionMap.has(questionId)) continue;
+      submitted.set(questionId, ans?.answer ?? null);
+    }
+
+    let totalPoints = 0;
     const answerData: { questionId: number; answer: string | null; pointsEarned: number }[] = [];
 
-    for (const ans of answers) {
-      const question = questionMap.get(ans.questionId as number);
-      if (!question) continue;
-
-      maxPoints += question.points;
-      let pointsEarned   = 0;
-      const studentAnswer = ans.answer ?? null;
+    for (const [questionId, studentAnswer] of submitted) {
+      const question = questionMap.get(questionId)!;
+      let pointsEarned = 0;
 
       if (studentAnswer !== null && question.correctAnswer !== null) {
         switch (question.type) {
@@ -97,15 +107,13 @@ export async function POST(
       }
 
       totalPoints += pointsEarned;
-      answerData.push({ questionId: question.id, answer: studentAnswer, pointsEarned });
+      answerData.push({ questionId, answer: studentAnswer, pointsEarned });
     }
 
-    if (maxPoints === 0) {
-      maxPoints = exam.questions.reduce((sum, q) => sum + q.points, 0);
-    }
-
-    const score  = maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 20 * 100) / 100 : 0;
-    const passed = score >= 10;
+    const score = maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 20 * 100) / 100 : 0;
+    // `score` is on the 0–20 scale, so a configured passingScore is read on that
+    // same scale. Default (unset) is 10/20, which is the previous behaviour.
+    const passed = exam.passingScore != null ? score >= exam.passingScore : score >= 10;
 
     const attempt = await db.$transaction(async (tx) => {
       return tx.examAttempt.create({
@@ -157,6 +165,8 @@ export async function POST(
       { status: 201 }
     );
   } catch (error) {
+    const authResponse = handleAuthError(error);
+    if (authResponse) return authResponse;
     console.error("Exam submit error:", error);
     return NextResponse.json({ ok: false, error: "Failed to submit exam." }, { status: 500 });
   }

@@ -36,7 +36,17 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
-          <Toaster richColors position="top-right" />
+          {/*
+            closeButton adds a dismiss (×) button to every toast. Some toasts are
+            intentionally long-lived — the ownCloud one stays up to 15s because it
+            may carry a password — so they need a manual way out.
+          */}
+          <Toaster
+            richColors
+            position="top-right"
+            closeButton
+            visibleToasts={4}
+          />
         </ThemeProvider>
       </body>
     </html>

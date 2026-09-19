@@ -27,6 +27,10 @@ const ROUTE_RULES: {
   { pattern: /^\/api\/auth\/student/, allowedRoles: [] },
   { pattern: /^\/api\/students\/register/, allowedRoles: [] },
   { pattern: /^\/api\/announcements$/, allowedRoles: ["admin", "instructor", "student"] },
+  // Reactions are authored by students (AnnouncementReaction.studentId is a
+  // Student FK), so this sub-path must stay reachable by the student role.
+  // Must be listed before the general /api/announcements/* rule below.
+  { pattern: /^\/api\/announcements\/\d+\/reactions/, allowedRoles: ["admin", "instructor", "student"] },
   { pattern: /^\/api\/announcements\//, allowedRoles: ["admin", "instructor"] },
   { pattern: /^\/api\/data\/purge/, allowedRoles: ["admin"] },
   { pattern: /^\/api\/data\/import/, allowedRoles: ["admin"] },

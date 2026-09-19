@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
+import { handleAuthError } from "@/lib/api-error";
 import { logAudit } from "@/lib/audit-log";
 
 export async function POST(request: Request) {
@@ -147,6 +148,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, transferred, failed, errors });
   } catch (error) {
+    const authResponse = handleAuthError(error);
+    if (authResponse) return authResponse;
     console.error("Student transfer error:", error);
     return NextResponse.json({ error: "Failed to process transfer." }, { status: 500 });
   }

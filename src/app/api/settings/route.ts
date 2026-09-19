@@ -31,7 +31,10 @@ async function ensureDefaults() {
   if (count === 0) {
     await db.setting.createMany({
       data: [
-        { key: "signup_enabled", value: "true" },
+        // Public self-registration is closed by default: an open signup endpoint
+        // on a fresh install lets anyone create an account. Enable it explicitly
+        // in Settings, via SIGNUP_ENABLED, or with a fresh install's .env.
+        { key: "signup_enabled", value: "false" },
         { key: "guacamole_url", value: "" },
       ],
     });

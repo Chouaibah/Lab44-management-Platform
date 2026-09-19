@@ -112,12 +112,21 @@ export async function POST(req: Request) {
     let adminToken: string;
     let dataSource: string;
     let baseUrl: string;
+    // The URL handed to the student's browser. `baseUrl` is only reachable from
+    // inside the Docker network; the browser needs the public URL.
+    let publicBaseUrl: string;
 
     try {
-      const auth = await getGuacamoleToken(guacUrl, guacAdminUser, guacAdminPass);
+      const auth = await getGuacamoleToken(
+        guacUrl,
+        guacAdminUser,
+        guacAdminPass,
+        map.guacamole_public_url
+      );
       adminToken = auth.token;
       dataSource = auth.dataSource;
       baseUrl = auth.baseUrl;
+      publicBaseUrl = auth.publicBaseUrl;
       console.log(`[Guac] Admin auth OK — baseUrl: ${baseUrl}, dataSource: ${dataSource}`);
     } catch (err: any) {
       console.error("[Guac] Admin auth failed:", err.message);
@@ -234,10 +243,16 @@ export async function POST(req: Request) {
     let studentBaseUrl: string;
 
     try {
-      const studentAuth = await getGuacamoleToken(baseUrl, guacUsername, guacPassword);
+      const studentAuth = await getGuacamoleToken(
+        baseUrl,
+        guacUsername,
+        guacPassword,
+        map.guacamole_public_url
+      );
       studentToken = studentAuth.token;
       studentDataSource = studentAuth.dataSource;
-      studentBaseUrl = studentAuth.baseUrl;
+      // `baseUrl` is the internal one; give the browser the public one.
+      studentBaseUrl = studentAuth.publicBaseUrl;
     } catch (error: any) {
       console.error("[Guac] Student token error:", error.message);
       return NextResponse.json(

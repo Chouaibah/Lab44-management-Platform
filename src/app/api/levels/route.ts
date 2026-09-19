@@ -5,6 +5,11 @@ import { getSession } from '@/lib/auth';
 // GET /api/levels - list all levels
 export async function GET() {
     try {
+        const session = await getSession();
+        if (!session) {
+            return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+        }
+
         const levels = await db.level.findMany({
             orderBy: { createdAt: 'asc' },
         });

@@ -126,17 +126,41 @@ export async function POST(request: Request) {
       try {
         const lab = await db.lab.findUnique({ where: { id: parseInt(labId) }, select: { autoApprove: true } });
         if (lab?.autoApprove) {
-          // Auto-approve the request in the background
-          approveVMRequest({
-            id: vmRequest.id,
-            accessProtocol: accessProtocol || "ssh",
-            startVM: true,
-          }).then(() => {
-            console.log(`[Auto-Approve] VM request ${vmRequest.id} auto-approved`);
-          }).catch((err) => {
-            console.error(`[Auto-Approve] Failed for VM request ${vmRequest.id}:`, err);
-          });
-          autoApproved = true;
+          // `labId` comes from the client, so verify the student is actually
+          // enrolled in it before auto-approving — otherwise a student could
+          // self-approve by naming any auto-approve lab.
+          const enrolled = vmRequest.studentDbId
+            ? await db.studentLab.findUnique({
+                where: {
+                  studentId_labId: {
+                    studentId: vmRequest.studentDbId,
+                    labId: parseInt(labId),
+                  },
+                },
+              })
+            : null;
+
+          if (!enrolled) {
+            console.warn(
+              `[Auto-Approve] Skipped request ${vmRequest.id}: student is not enrolled in lab ${labId}`,
+            );
+          } else {
+            // Auto-approve the request in the background
+            approveVMRequest({
+              id: vmRequest.id,
+              accessProtocol: accessProtocol || "ssh",
+              startVM: true,
+            }).then((result) => {
+              if (result.ok === false) {
+                console.warn(`[Auto-Approve] VM request ${vmRequest.id} failed: ${result.error}`);
+              } else {
+                console.log(`[Auto-Approve] VM request ${vmRequest.id} auto-approved`);
+              }
+            }).catch((err) => {
+              console.error(`[Auto-Approve] Failed for VM request ${vmRequest.id}:`, err);
+            });
+            autoApproved = true;
+          }
         }
       } catch (err) {
         console.error("[Auto-Approve] Check failed:", err);

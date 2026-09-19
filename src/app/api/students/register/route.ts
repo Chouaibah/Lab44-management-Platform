@@ -2,10 +2,17 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { hash } from "bcryptjs";
 import { logAudit } from "@/lib/audit-log";
+import { checkRegistrationRateLimit } from "@/lib/rate-limit";
 
 // Register a new student
 export async function POST(request: Request) {
   try {
+    // This endpoint is public (the proxy skips it), so it needs its own limiter —
+    // otherwise it can be used to mass-create accounts. The registration bucket is
+    // deliberately generous so a class behind one IP is not locked out.
+    const clientIp = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown";
+    await checkRegistrationRateLimit(`register:${clientIp}`);
+
     // Check if signup is enabled
     const signupSetting = await db.setting.findUnique({
       where: { key: "signup_enabled" },
@@ -61,9 +68,12 @@ export async function POST(request: Request) {
       },
     });
   } catch (error: unknown) {
-    const err = error as { code?: string; message: string };
+    const err = error as { code?: string; message?: string };
     if (err.code === "P2002") {
       return NextResponse.json({ error: "Student ID already registered." }, { status: 409 });
+    }
+    if (err.message?.includes("Too many")) {
+      return NextResponse.json({ error: err.message }, { status: 429 });
     }
     console.error("Register error:", error);
     return NextResponse.json({ error: "Registration failed." }, { status: 500 });

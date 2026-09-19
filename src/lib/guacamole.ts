@@ -124,12 +124,53 @@ function compactBodyPreview(body: string, maxLen = 220): string {
   return compact.length > maxLen ? `${compact.slice(0, maxLen)}...` : compact;
 }
 
+// ─── Public (browser-facing) URL ─────────────────────────────────────────────
+
+/**
+ * Work out which URL a **browser** should use to open the Guacamole client.
+ *
+ * Lab44's server talks to Guacamole over the Docker network, where a hostname
+ * like `http://guacamole:8080` resolves fine. A student's browser cannot resolve
+ * that name, so it needs the public URL (`https://guacamole.example.com`).
+ * The two are configured separately:
+ *
+ *   guacamole_url         → internal, used by the server for REST calls
+ *   guacamole_public_url  → public, handed to the browser
+ *
+ * When no public URL is configured we fall back to the internal one, which is
+ * the historical behaviour and stays correct whenever the internal URL is itself
+ * reachable from users' browsers (e.g. a single public hostname).
+ */
+export function resolveGuacamolePublicBase(
+  internalBase: string,
+  publicUrl?: string | null,
+): string {
+  const configured = (publicUrl || "").trim().replace(/\/+$/, "");
+  if (!configured) return internalBase;
+
+  const withScheme = /^https?:\/\//i.test(configured) ? configured : `https://${configured}`;
+
+  try {
+    const pub = new URL(withScheme);
+    // Carry over the path the working internal URL uses (typically
+    // "/guacamole") when the configured public URL is only an origin.
+    const internalPath = new URL(internalBase).pathname.replace(/\/+$/, "");
+    if ((!pub.pathname || pub.pathname === "/") && internalPath) {
+      return `${pub.origin}${internalPath}`;
+    }
+    return `${pub.origin}${pub.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return withScheme;
+  }
+}
+
 // ─── Token ───────────────────────────────────────────────────────────────────
 
 export async function getGuacamoleToken(
   guacUrl: string,
   username: string,
-  password: string
+  password: string,
+  publicUrl?: string | null
 ) {
   const params = new URLSearchParams();
   params.append("username", username);
@@ -160,7 +201,12 @@ export async function getGuacamoleToken(
         continue;
       }
 
-      return { token: data.authToken, dataSource: data.dataSource, baseUrl };
+      return {
+        token: data.authToken,
+        dataSource: data.dataSource,
+        baseUrl,
+        publicBaseUrl: resolveGuacamolePublicBase(baseUrl, publicUrl),
+      };
     } catch (error: any) {
       attempts.push(`${baseUrl} -> ${error?.message || "Network error"}`);
     }
@@ -458,12 +504,14 @@ export async function provisionGuacamoleTempAccess(
   protocol: "rdp" | "ssh" | "vnc",
   host: string,
   vmUser: string,
-  vmPass: string
+  vmPass: string,
+  publicUrl?: string | null
 ) {
-  const { token, dataSource, baseUrl } = await getGuacamoleToken(
+  const { token, dataSource, baseUrl, publicBaseUrl } = await getGuacamoleToken(
     guacUrl,
     adminUser,
-    adminPass
+    adminPass,
+    publicUrl
   );
 
   await ensureGuacamoleUser(baseUrl, token, dataSource, tempUsername, tempPassword);
@@ -486,5 +534,5 @@ export async function provisionGuacamoleTempAccess(
 
   await grantGuacamoleAccess(baseUrl, token, dataSource, tempUsername, connId);
 
-  return { connId, dataSource, baseUrl };
+  return { connId, dataSource, baseUrl, publicBaseUrl };
 }

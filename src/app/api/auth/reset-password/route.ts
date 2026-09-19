@@ -2,10 +2,16 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { compare, hash } from "bcryptjs";
 import { logAudit } from "@/lib/audit-log";
+import { checkAuthRateLimit } from "@/lib/rate-limit";
 
 // Self-service password reset using security question
 export async function POST(request: Request) {
   try {
+    // The only credential here is a security answer, and this route is public
+    // (the proxy skips /api/auth/*), so it must be rate limited.
+    const clientIp = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown";
+    await checkAuthRateLimit(`auth:reset:${clientIp}`);
+
     const { userRole, identifier, securityAnswer, newPassword } = await request.json();
 
     if (!userRole || !identifier || !newPassword) {
@@ -15,12 +21,16 @@ export async function POST(request: Request) {
       );
     }
 
-    if (newPassword.length < 6) {
+    if (typeof newPassword !== "string" || newPassword.length < 6) {
       return NextResponse.json(
         { error: "New password must be at least 6 characters." },
         { status: 400 }
       );
     }
+
+    // A missing/non-string answer must not crash the comparison below.
+    const normalizedAnswer =
+      typeof securityAnswer === "string" ? securityAnswer.trim().toLowerCase() : "";
 
     if (userRole === "student") {
       // Find student by studentId
@@ -44,7 +54,7 @@ export async function POST(request: Request) {
       }
 
       // Verify security answer
-      const answerMatch = await compare(securityAnswer.trim().toLowerCase(), student.securityAnswer);
+      const answerMatch = await compare(normalizedAnswer, student.securityAnswer);
       if (!answerMatch) {
         await logAudit({
           type: "auth",
@@ -99,7 +109,7 @@ export async function POST(request: Request) {
       }
 
       // Verify security answer
-      const answerMatch = await compare(securityAnswer.trim().toLowerCase(), instructor.securityAnswer);
+      const answerMatch = await compare(normalizedAnswer, instructor.securityAnswer);
       if (!answerMatch) {
         await logAudit({
           type: "auth",
@@ -137,6 +147,9 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   } catch (error) {
+    if (error instanceof Error && error.message.includes("Too many")) {
+      return NextResponse.json({ error: error.message }, { status: 429 });
+    }
     console.error("Password reset error:", error);
     return NextResponse.json(
       { error: "Password reset failed." },

@@ -11,12 +11,16 @@ if (!fs.existsSync(serverPath)) {
 const serverContent = fs.readFileSync(serverPath, 'utf8');
 
 // Check if the .env loading code is already present
-if (!serverContent.includes('Load .env file from standalone directory')) {
+if (!serverContent.includes('Load .env file from standalone directory') &&
+    !serverContent.includes('Load .env from standalone directory')) {
   const insertionPoint = "process.env.NODE_ENV = 'production'";
   const envLoader = `const fs = require('fs')
 
-// Load .env file from standalone directory
-const envPath = path.join(__dirname, '.env')
+// Load .env from standalone directory, falling back to project root
+const standaloneEnv = path.join(__dirname, '.env')
+const envPath = fs.existsSync(standaloneEnv)
+  ? standaloneEnv
+  : path.join(__dirname, '../../.env')
 if (fs.existsSync(envPath)) {
   const envContent = fs.readFileSync(envPath, 'utf8')
   envContent.split('\\n').forEach(line => {

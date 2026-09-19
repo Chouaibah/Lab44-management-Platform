@@ -32,9 +32,11 @@ interface GradedAnswer {
 
 interface SubmissionResult {
   attemptId: number;
-  score: number;
-  totalPoints: number;
-  maxPoints: number;
+  // These are null when the exam's showResults is "manual" — the server withholds
+  // the score, totals and breakdown until the instructor releases them.
+  score: number | null;
+  totalPoints: number | null;
+  maxPoints: number | null;
   passed: boolean | null;
   timeSpent: number | null;
   gradedAnswers: GradedAnswer[];
@@ -335,7 +337,8 @@ export default function StudentExamTakingView() {
 
   // ─── Results Phase ────────────────────────────────────────────────────────
   if (phase === 'results' && result) {
-    const scorePercent = result.score;
+    const hasScore = typeof result.score === 'number';
+    const scorePercent = hasScore ? (result.score as number) : 0;
     const scoreColor = result.passed ? '#10b981' : '#ef4444';
     const scoreTextColor = result.passed ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400';
     const timeSpent = result.timeSpent || Math.round((Date.now() - startTimeRef.current) / 1000);
@@ -354,39 +357,52 @@ export default function StudentExamTakingView() {
               <div className="flex flex-col items-center text-center">
                 <h2 className="text-xl font-bold mb-6">{exam?.title || 'Exam'} — Results</h2>
 
-                {/* Circular Progress */}
-                <div className="relative mb-4">
-                  <CircularProgress value={scorePercent} size={120} strokeWidth={8} color={scoreColor} />
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className={`text-2xl font-bold ${scoreTextColor}`}>
-                      {scorePercent.toFixed(1)}/20
-                    </span>
-                  </div>
-                </div>
+                {hasScore ? (
+                  <>
+                    {/* Circular Progress */}
+                    <div className="relative mb-4">
+                      <CircularProgress value={scorePercent} size={120} strokeWidth={8} color={scoreColor} />
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className={`text-2xl font-bold ${scoreTextColor}`}>
+                          {scorePercent.toFixed(1)}/20
+                        </span>
+                      </div>
+                    </div>
 
-                {/* Pass/Fail Badge */}
-                {result.passed !== null && (
-                  <Badge className={`text-sm px-4 py-1 mt-2 ${
-                    result.passed
-                      ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800'
-                      : 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800'
-                  }`}>
-                    {result.passed ? (
-                      <><CheckCircle2 className="h-4 w-4 mr-1" /> Passed</>
-                    ) : (
-                      <><XCircle className="h-4 w-4 mr-1" /> Failed</>
+                    {/* Pass/Fail Badge */}
+                    {result.passed !== null && (
+                      <Badge className={`text-sm px-4 py-1 mt-2 ${
+                        result.passed
+                          ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800'
+                          : 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800'
+                      }`}>
+                        {result.passed ? (
+                          <><CheckCircle2 className="h-4 w-4 mr-1" /> Passed</>
+                        ) : (
+                          <><XCircle className="h-4 w-4 mr-1" /> Failed</>
+                        )}
+                      </Badge>
                     )}
-                  </Badge>
+                  </>
+                ) : (
+                  <div className="rounded-lg bg-muted/50 px-4 py-3 mt-2">
+                    <p className="text-sm font-medium">Your answers were submitted.</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Your instructor will release the results.
+                    </p>
+                  </div>
                 )}
 
                 {/* Stats */}
                 <div className="flex items-center gap-8 mt-6 text-center">
-                  <div>
-                    <div className="text-lg font-semibold">
-                      {result.totalPoints.toFixed(1)} / {result.maxPoints.toFixed(1)}
+                  {hasScore && (
+                    <div>
+                      <div className="text-lg font-semibold">
+                        {(result.totalPoints ?? 0).toFixed(1)} / {(result.maxPoints ?? 0).toFixed(1)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Points</div>
                     </div>
-                    <div className="text-xs text-muted-foreground">Points</div>
-                  </div>
+                  )}
                   <div>
                     <div className="text-lg font-semibold">
                       {Math.floor(timeSpent / 60)}m {timeSpent % 60}s
@@ -404,9 +420,11 @@ export default function StudentExamTakingView() {
 
           {/* Question Breakdown */}
           <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-              Question Breakdown
-            </h3>
+            {result.gradedAnswers.length > 0 && (
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                Question Breakdown
+              </h3>
+            )}
             {result.gradedAnswers.map((ga, idx) => {
               const options = ga.questionOptions ? JSON.parse(ga.questionOptions) : null;
               return (

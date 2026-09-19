@@ -22,6 +22,9 @@ export async function GET() {
     const map = await getSettingsMap();
     return NextResponse.json({
       guacamole_url: map.guacamole_url || "",
+      // Browser-facing URL. Empty means "same as guacamole_url", which is correct
+      // whenever the internal URL is itself reachable by users' browsers.
+      guacamole_public_url: map.guacamole_public_url || "",
       guacamole_root_username: map.guacamole_root_username || "",
       guacamole_root_password_set: !!map.guacamole_root_password,
     });
@@ -40,12 +43,14 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   const url = body.url || body.host || body.guacamole_url || "";
+  const publicUrl = body.publicUrl || body.guacamole_public_url || "";
   const rootUsername = body.rootUsername || body.username || body.guac_username || "";
   const rootPassword = body.rootPassword || body.password || body.guac_password || "";
 
-  console.log("[GUAC-POST] body:", JSON.stringify({ url, rootUsername, hasPassword: !!rootPassword }));
+  console.log("[GUAC-POST] body:", JSON.stringify({ url, publicUrl, rootUsername, hasPassword: !!rootPassword }));
 
   if (url !== undefined && url !== null) await upsertSetting("guacamole_url", url);
+  if (publicUrl !== undefined && publicUrl !== null) await upsertSetting("guacamole_public_url", publicUrl);
   if (rootUsername !== undefined && rootUsername !== null) await upsertSetting("guacamole_root_username", rootUsername);
   if (rootPassword !== undefined && rootPassword !== null && rootPassword !== "") await upsertSetting("guacamole_root_password", rootPassword);
   invalidateSettingsCache();
@@ -93,10 +98,12 @@ export async function PATCH(request: Request) {
 
     const body = await request.json();
     const url = body.url !== undefined ? body.url : (body.host !== undefined ? body.host : body.guacamole_url);
+    const publicUrl = body.publicUrl !== undefined ? body.publicUrl : body.guacamole_public_url;
     const rootUsername = body.rootUsername !== undefined ? body.rootUsername : (body.username !== undefined ? body.username : body.guac_username);
     const rootPassword = body.rootPassword !== undefined ? body.rootPassword : (body.password !== undefined ? body.password : body.guac_password);
 
 	if (url !== undefined) await upsertSetting("guacamole_url", url);
+	if (publicUrl !== undefined) await upsertSetting("guacamole_public_url", publicUrl);
 	if (rootUsername !== undefined) await upsertSetting("guacamole_root_username", rootUsername);
 	if (rootPassword !== undefined && rootPassword.length > 0) {
 	await upsertSetting("guacamole_root_password", rootPassword);

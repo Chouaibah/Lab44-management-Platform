@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth";
+import { handleAuthError } from "@/lib/api-error";
 
 export async function GET(request: Request) {
   try {
@@ -29,7 +30,9 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.json({ links });
-  } catch {
+  } catch (error) {
+    const authResponse = handleAuthError(error);
+    if (authResponse) return authResponse;
     return NextResponse.json({ links: [] });
   }
 }
@@ -54,7 +57,9 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json({ ok: true, link });
-  } catch {
+  } catch (error) {
+    const authResponse = handleAuthError(error);
+    if (authResponse) return authResponse;
     return NextResponse.json({ error: "Failed to create link." }, { status: 500 });
   }
 }
@@ -74,7 +79,9 @@ export async function PUT(request: Request) {
     await db.resourceLink.update({ where: { id: parseInt(id) }, data });
 
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    const authResponse = handleAuthError(error);
+    if (authResponse) return authResponse;
     return NextResponse.json({ error: "Failed to update link." }, { status: 500 });
   }
 }
@@ -88,7 +95,9 @@ export async function DELETE(request: Request) {
 
     await db.resourceLink.delete({ where: { id: parseInt(id) } });
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    const authResponse = handleAuthError(error);
+    if (authResponse) return authResponse;
     return NextResponse.json({ error: "Failed to delete link." }, { status: 500 });
   }
 }

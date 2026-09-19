@@ -114,6 +114,9 @@ export default function AdminSettingsView() {
 
   // Guacamole settings
   const [guacUrl, setGuacUrl] = useState('');
+  // The URL a student's BROWSER uses. Leave empty when the server URL above is
+  // already publicly reachable (the historical single-URL setup).
+  const [guacPublicUrl, setGuacPublicUrl] = useState('');
   const [guacUser, setGuacUser] = useState('');
   const [guacPw, setGuacPw] = useState('');
   const [guacPwSet, setGuacPwSet] = useState(false);
@@ -128,6 +131,9 @@ export default function AdminSettingsView() {
 
   // OwnCloud settings
   const [ocUrl, setOcUrl] = useState('');
+  // The URL a user's BROWSER uses for login links. Leave empty when the server
+  // URL above is already publicly reachable.
+  const [ocPublicUrl, setOcPublicUrl] = useState('');
   const [ocUser, setOcUser] = useState('');
   const [ocPw, setOcPw] = useState('');
   const [ocPwSet, setOcPwSet] = useState(false);
@@ -154,6 +160,7 @@ export default function AdminSettingsView() {
         const guacRes = await fetch('/api/guacamole');
         const guacData = await guacRes.json();
         setGuacUrl(guacData.guacamole_url || '');
+        setGuacPublicUrl(guacData.guacamole_public_url || '');
         setGuacUser(guacData.guacamole_root_username || '');
         setGuacPwSet(guacData.guacamole_root_password_set || false);
         setGuacConnected(guacData.connected || false);
@@ -163,6 +170,7 @@ export default function AdminSettingsView() {
         const ocRes = await fetch('/api/owncloud');
         const ocData = await ocRes.json();
         setOcUrl(ocData.owncloud_url || '');
+        setOcPublicUrl(ocData.owncloud_public_url || '');
         setOcUser(ocData.owncloud_admin_username || '');
         setOcPwSet(ocData.owncloud_admin_password_set || false);
       } catch { /* ignore */ }
@@ -265,7 +273,7 @@ export default function AdminSettingsView() {
       const res = await fetch('/api/guacamole', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: guacUrl.trim(), rootUsername: guacUser.trim(), rootPassword: guacPw }),
+        body: JSON.stringify({ url: guacUrl.trim(), publicUrl: guacPublicUrl.trim(), rootUsername: guacUser.trim(), rootPassword: guacPw }),
       });
       const data = await res.json();
       setGuacTestResult({ ok: data.ok || false, message: data.message || (data.error || 'Unknown error') });
@@ -283,6 +291,7 @@ export default function AdminSettingsView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: guacUrl.trim(),
+                             publicUrl: guacPublicUrl.trim(),
                              rootUsername: guacUser.trim(),
                              rootPassword: guacPw.length > 0 ? guacPw : undefined,
         }),
@@ -312,7 +321,7 @@ export default function AdminSettingsView() {
       const res = await fetch('/api/owncloud', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: ocUrl.trim(), adminUsername: ocUser.trim(), adminPassword: ocPw }),
+        body: JSON.stringify({ url: ocUrl.trim(), publicUrl: ocPublicUrl.trim(), adminUsername: ocUser.trim(), adminPassword: ocPw }),
       });
       const data = await res.json();
       setOcTestResult({ ok: data.ok || false, message: data.message || (data.error || 'Unknown error') });
@@ -328,7 +337,7 @@ export default function AdminSettingsView() {
       const res = await fetch('/api/owncloud', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: ocUrl.trim(), adminUsername: ocUser.trim(), adminPassword: ocPw.length > 0 ? ocPw : undefined }),
+        body: JSON.stringify({ url: ocUrl.trim(), publicUrl: ocPublicUrl.trim(), adminUsername: ocUser.trim(), adminPassword: ocPw.length > 0 ? ocPw : undefined }),
       });
       const data = await res.json();
       if (!data.ok) { toast.error(data.error || 'Failed to save'); setOcLoading(false); return; }
@@ -575,8 +584,16 @@ export default function AdminSettingsView() {
     </CardHeader>
     <CardContent className="space-y-4">
     <div className="space-y-1.5">
-    <Label className="text-xs">Host Address</Label>
-    <Input value={guacUrl} onChange={(e) => setGuacUrl(e.target.value)} placeholder="192.168.1.100:8080 or https://guacamole.example.com" />
+    <Label className="text-xs">Host Address (used by the Lab44 server)</Label>
+    <Input value={guacUrl} onChange={(e) => setGuacUrl(e.target.value)} placeholder="http://guacamole:8080/guacamole" />
+    </div>
+    <div className="space-y-1.5">
+    <Label className="text-xs">Public URL (opened in the student&apos;s browser)</Label>
+    <Input value={guacPublicUrl} onChange={(e) => setGuacPublicUrl(e.target.value)} placeholder="https://guacamole.example.com — leave empty to reuse the host address" />
+    <p className="text-[11px] text-muted-foreground">
+      Required when the host address is only reachable from the server, e.g. a Docker
+      service name like <code>guacamole</code>. Your browser cannot resolve that.
+    </p>
     </div>
     <div className="space-y-1.5">
     <Label className="text-xs">Username</Label>
@@ -617,8 +634,16 @@ export default function AdminSettingsView() {
     </CardHeader>
     <CardContent className="space-y-4">
     <div className="space-y-1.5">
-    <Label className="text-xs">OwnCloud URL</Label>
-    <Input value={ocUrl} onChange={(e) => setOcUrl(e.target.value)} placeholder="https://owncloud.example.com" />
+    <Label className="text-xs">OwnCloud URL (used by the Lab44 server)</Label>
+    <Input value={ocUrl} onChange={(e) => setOcUrl(e.target.value)} placeholder="http://owncloud:8080" />
+    </div>
+    <div className="space-y-1.5">
+    <Label className="text-xs">Public URL (opened in the instructor&apos;s browser)</Label>
+    <Input value={ocPublicUrl} onChange={(e) => setOcPublicUrl(e.target.value)} placeholder="https://owncloud.example.com — leave empty to reuse the URL above" />
+    <p className="text-[11px] text-muted-foreground">
+      Required when the URL above is only reachable from the server, e.g. a Docker
+      service name like <code>owncloud</code>.
+    </p>
     </div>
     <div className="space-y-1.5">
     <Label className="text-xs">Root Username</Label>

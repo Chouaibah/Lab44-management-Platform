@@ -1,11 +1,36 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit-log";
+import { getSession } from "@/lib/auth";
+import { timingSafeEqual } from "crypto";
 import fs from "fs";
 import path from "path";
 
 const BACKUP_DIR = path.join(process.cwd(), "backups");
 const DB_PATH = path.join(process.cwd(), "db", "custom.db");
+
+/**
+ * This endpoint mutates the filesystem (creates backups, deletes expired ones),
+ * so it must not be callable by an arbitrary logged-in user.
+ *
+ * It is reachable in two ways:
+ *   1. An authenticated admin session, or
+ *   2. A scheduler presenting `x-cron-secret` that matches CRON_SECRET — but only
+ *      when CRON_SECRET is actually configured. With no CRON_SECRET set, an admin
+ *      session is the only way in.
+ */
+async function isAuthorized(request: Request): Promise<boolean> {
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret) {
+    const provided = request.headers.get("x-cron-secret") ?? "";
+    const a = Buffer.from(provided, "utf8");
+    const b = Buffer.from(cronSecret, "utf8");
+    if (a.length === b.length && timingSafeEqual(a, b)) return true;
+  }
+
+  const session = await getSession();
+  return session?.role === "admin";
+}
 
 function ensureBackupDir() {
   if (!fs.existsSync(BACKUP_DIR)) {
@@ -20,8 +45,12 @@ function formatBackupFilename(): string {
 }
 
 // GET: Check if auto-backup is due and create one if needed
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    if (!(await isAuthorized(request))) {
+      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
+
     // Read settings
     const autoBackupEnabled = await db.setting.findUnique({ where: { key: "auto_backup_enabled" } });
     if (!autoBackupEnabled || autoBackupEnabled.value !== "true") {

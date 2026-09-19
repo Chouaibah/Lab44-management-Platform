@@ -38,6 +38,14 @@ export async function POST(request: Request) {
             startVM: false,
           });
 
+          // approveVMRequest reports provisioning failures instead of throwing,
+          // so they must be counted here or the batch looks fully successful.
+          if (result.ok === false) {
+            results.push({ id, status: "error", error: result.error });
+            failed++;
+            continue;
+          }
+
           results.push({ id, status: "approved" });
         } else {
           // Reject logic — same as single reject endpoint

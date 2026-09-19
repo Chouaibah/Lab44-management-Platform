@@ -1,42 +1,429 @@
-version: "3.8"
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Lab44 Platform -- full stack
+#
+#  One `docker compose -f docker-composeV2.yml up -d` brings up:
+#
+#    db                PostgreSQL  : Lab44 schema + Guacamole schema
+#    app-migrate       one-shot    : creates/updates the Lab44 schema
+#    app               Lab44       : the platform itself
+#    guacd             Guacamole   : the remote-desktop proxy daemon
+#    guacamole         Guacamole   : web app (users, connections, REST API)
+#    guac-schema       one-shot    : generates Guacamole's SQL schema
+#    guac-db-init      one-shot    : applies the schema + sets the admin password
+#    owncloud-db       MariaDB     : ownCloud database
+#    owncloud-redis    Redis       : ownCloud cache/locking
+#    owncloud          ownCloud    : file storage web app
+#
+#  FIRST INSTALL -- no manual configuration is needed. Run:
+#
+#      ./scripts/install.sh
+#
+#  which writes a .env with freshly generated secrets and then starts the stack.
+#  Everything Lab44 needs to talk to Guacamole and ownCloud is passed to it as
+#  environment variables and seeded into its settings automatically on first
+#  boot (see src/lib/bootstrap-settings.ts). Change anything later in the
+#  admin UI -- the seeder never overwrites a value that already exists.
+#
+#  ── Why there are two URLs per service ──────────────────────────────────────
+#  Lab44's SERVER reaches Guacamole/ownCloud over this Docker network, where
+#  `http://guacamole:8080` resolves. A student's BROWSER cannot resolve that
+#  name, so it needs the public URL. Both are configured:
+#
+#      GUACAMOLE_INTERNAL_URL  http://guacamole:8080/guacamole   (server only)
+#      GUACAMOLE_PUBLIC_URL    https://guacamole.example.com     (browser)
+#      OWNCLOUD_INTERNAL_URL   http://owncloud:8080              (server only)
+#      OWNCLOUD_PUBLIC_URL     https://owncloud.example.com      (browser)
+#
+#  Put your own reverse proxy / ingress in front of the published ports -- this
+#  file deliberately contains no proxy of its own.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: lab44
+
 services:
+
+  # ───────────────────────────────────────────────────────────────────────────
+  #  PostgreSQL -- Lab44 and Guacamole share one server, in separate databases
+  # ───────────────────────────────────────────────────────────────────────────
   db:
-    container_name: lab44-db
     image: postgres:16-alpine
-    restart: always
+    container_name: lab44-db
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: lab44
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
-      POSTGRES_DB: lab44
-    ports:
-      - "127.0.0.1:5432:5432"
+      POSTGRES_USER: ${DB_USER:-lab44}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is missing -- run ./scripts/install.sh}
+      POSTGRES_DB: ${DB_NAME:-lab44}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U lab44 -d lab44"]
+      # pg_isready alone only proves the server accepts connections -- it does NOT
+      # check credentials, so it reports "healthy" even when DB_PASSWORD no longer
+      # matches what the volume was initialised with. The psql call makes that
+      # mismatch fail fast and visibly instead of surfacing 60s later elsewhere.
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -U ${DB_USER:-lab44} -d ${DB_NAME:-lab44} -q &&
+          PGPASSWORD="$$POSTGRES_PASSWORD" psql -U ${DB_USER:-lab44} -d ${DB_NAME:-lab44} -tAc 'SELECT 1' >/dev/null
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 20s
+    networks: [lab44]
 
-  app:
-    container_name: lab44-app
+  # ───────────────────────────────────────────────────────────────────────────
+  #  One-shot: create/update the Lab44 schema (prisma db push)
+  # ───────────────────────────────────────────────────────────────────────────
+  app-migrate:
     build:
       context: .
-      dockerfile: Dockerfile
-    restart: always
-    ports:
-      - "3000:3000"
+      target: migrator
+    image: lab44-migrator
+    container_name: lab44-migrate
+    restart: "no"
     environment:
-      - NODE_ENV=production
-      - DATABASE_URL=postgresql://lab44:${DB_PASSWORD:-password}@db:5432/lab44
-      - SESSION_SECRET=${SESSION_SECRET}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-    env_file:
-      - .env
+      DATABASE_URL: postgresql://${DB_USER:-lab44}:${DB_PASSWORD}@db:5432/${DB_NAME:-lab44}
     depends_on:
       db:
         condition: service_healthy
+    networks: [lab44]
+
+  # ───────────────────────────────────────────────────────────────────────────
+  #  Lab44 Platform
+  # ───────────────────────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      target: runner
+    image: lab44-app
+    container_name: lab44-app
+    restart: unless-stopped
+    ports:
+      # Your reverse proxy points at this port.
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${DB_USER:-lab44}:${DB_PASSWORD}@db:5432/${DB_NAME:-lab44}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is missing -- run ./scripts/install.sh}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is missing -- run ./scripts/install.sh}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is missing -- run ./scripts/install.sh}
+
+      # ── Auto-seeded into Lab44's settings on first boot ────────────────────
+      # Guacamole: internal URL for the server, public URL for the browser.
+      GUACAMOLE_INTERNAL_URL: ${GUACAMOLE_INTERNAL_URL:-http://guacamole:8080/guacamole}
+      GUACAMOLE_PUBLIC_URL: ${GUACAMOLE_PUBLIC_URL:-}
+      GUACAMOLE_ADMIN_USERNAME: ${GUACAMOLE_ADMIN_USERNAME:-guacadmin}
+      GUACAMOLE_ADMIN_PASSWORD: ${GUACAMOLE_ADMIN_PASSWORD:?GUACAMOLE_ADMIN_PASSWORD is missing -- run ./scripts/install.sh}
+
+      # ownCloud: internal URL for the OCS API, public URL for login links.
+      OWNCLOUD_INTERNAL_URL: ${OWNCLOUD_INTERNAL_URL:-http://owncloud:8080}
+      OWNCLOUD_PUBLIC_URL: ${OWNCLOUD_PUBLIC_URL:-}
+      OWNCLOUD_ADMIN_USERNAME: ${OWNCLOUD_ADMIN_USERNAME:-admin}
+      OWNCLOUD_ADMIN_PASSWORD: ${OWNCLOUD_ADMIN_PASSWORD:?OWNCLOUD_ADMIN_PASSWORD is missing -- run ./scripts/install.sh}
+
+      # XCP-ng hypervisor -- external hardware, so these are optional. Leave them
+      # empty and set the host/credentials in the admin UI instead.
+      XCPNG_HOST: ${XCPNG_HOST:-}
+      XCPNG_USERNAME: ${XCPNG_USERNAME:-}
+      XCPNG_PASSWORD: ${XCPNG_PASSWORD:-}
+
+      # XCP-ng speaks XML-RPC over HTTPS on 443, and a default XCP-ng install uses
+      # a SELF-SIGNED certificate — so with verification on you get
+      # "unable to verify the first certificate" / "self signed certificate".
+      #
+      # Only the literal "false" disables verification; anything else (including
+      # unset or a typo) keeps it ON. The installer writes false to .env because a
+      # private certificate is the norm, but the better fix is to keep verification
+      # ON and trust the host's certificate via XCP_CA_CERT.
+      XCP_REJECT_UNAUTHORIZED: ${XCP_REJECT_UNAUTHORIZED:-true}
+
+      # Path to (or inline PEM contents of) the XCP-ng CA certificate. With the
+      # ./certs mount below, drop the file at ./certs/xcpng-ca.pem on the host and
+      # set XCP_CA_CERT=/certs/xcpng-ca.pem in .env.
+      XCP_CA_CERT: ${XCP_CA_CERT:-}
+
+      # Allow students to self-register (Settings → signup_enabled).
+      SIGNUP_ENABLED: ${SIGNUP_ENABLED:-false}
+
+      # The session cookie is marked `Secure` whenever NODE_ENV=production and
+      # this is not set. A `Secure` cookie is only stored over HTTPS — and while
+      # browsers make an exception for http://localhost, they do NOT for a LAN
+      # address such as http://192.168.1.50:3000. The cookie is then silently
+      # dropped, so the page loads but every API call returns
+      # "Authentication required."
+      #
+      # Default is true because this stack serves plain HTTP on its published
+      # ports. Set ALLOW_INSECURE_COOKIES=false in .env once Lab44 is reached
+      # over HTTPS (recommended), so the cookie cannot leak over plain HTTP.
+      ALLOW_INSECURE_COOKIES: ${ALLOW_INSECURE_COOKIES:-true}
+
+      # Shared secret for the auto-backup endpoint, if you call it from a
+      # scheduler: GET /api/admin/backups/check with an `x-cron-secret` header.
+      CRON_SECRET: ${CRON_SECRET:-}
+    volumes:
+      # Optional, read-only. Lets you keep TLS verification ON for a self-signed
+      # XCP-ng host: put the certificate at ./certs/xcpng-ca.pem on the host and
+      # set XCP_CA_CERT=/certs/xcpng-ca.pem in .env (then
+      # XCP_REJECT_UNAUTHORIZED can stay true).
+      - ./certs:/certs:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      app-migrate:
+        condition: service_completed_successfully
+    networks: [lab44]
+
+  # ───────────────────────────────────────────────────────────────────────────
+  #  Guacamole -- remote desktop gateway
+  # ───────────────────────────────────────────────────────────────────────────
+
+  # Generates Guacamole's own SQL schema into a shared volume.
+  guac-schema:
+    image: guacamole/guacamole:${GUACAMOLE_VERSION:-1.6.0}
+    container_name: lab44-guac-schema
+    restart: "no"
+    # A freshly created named volume is owned by root, and this image's default
+    # user is not root, so a plain `> /schema/initdb.sql` fails with a bare
+    # "exit 2" (a shell redirection error). This job only reads its own image and
+    # writes one file, so running it as root is the simplest reliable fix.
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /schema
+
+        echo "[guac-schema] running as user=$$(id -un 2>/dev/null || echo '?') uid=$$(id -u) gid=$$(id -g)"
+
+        if ! ( : > /schema/.write-test ) 2>/dev/null; then
+          echo "[guac-schema] ERROR: /schema is not writable by uid $$(id -u)." >&2
+          ls -ld /schema >&2 || true
+          exit 1
+        fi
+        rm -f /schema/.write-test
+
+        INITDB=/opt/guacamole/bin/initdb.sh
+        if [ ! -x "$$INITDB" ]; then
+          echo "[guac-schema] ERROR: $$INITDB is missing or not executable." >&2
+          ls -l /opt/guacamole/bin >&2 || true
+          exit 1
+        fi
+
+        "$$INITDB" --postgresql > /schema/initdb.sql
+
+        if [ ! -s /schema/initdb.sql ]; then
+          echo "[guac-schema] ERROR: the generated schema file is empty." >&2
+          ls -l /opt/guacamole/extensions/guacamole-auth-jdbc/postgresql/schema >&2 || true
+          exit 1
+        fi
+
+        chmod 644 /schema/initdb.sql
+        echo "[guac-schema] OK: generated $$(wc -l < /schema/initdb.sql) lines of schema"
+    volumes:
+      - guac_schema:/schema
+    networks: [lab44]
+
+  # Creates the Guacamole database if needed, applies the schema (idempotent) and
+  # replaces the default guacadmin password.
+  #
+  # This deliberately does NOT rely on docker-entrypoint-initdb.d: that hook only
+  # runs when the Postgres volume is brand new, and it silently does nothing if
+  # its script is missing or unreadable by the `postgres` user. Creating the
+  # database here works on any volume state, including an existing one.
+  guac-db-init:
+    image: postgres:16-alpine
+    container_name: lab44-guac-db-init
+    restart: "no"
+    environment:
+      PGPASSWORD: ${DB_PASSWORD}
+      PGHOST: db
+      PGUSER: ${DB_USER:-lab44}
+      LAB44_DB_NAME: ${DB_NAME:-lab44}
+      GUAC_DB_NAME: ${GUAC_DB_NAME:-guacamole}
+      GUAC_ADMIN_PASSWORD: ${GUACAMOLE_ADMIN_PASSWORD:?}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+
+        if [ ! -s /schema/initdb.sql ]; then
+          echo "[guac-db-init] ERROR: /schema/initdb.sql is missing or empty -- the guac-schema step did not produce a schema. Check 'docker compose logs guac-schema'." >&2
+          exit 1
+        fi
+
+        echo "[guac-db-init] waiting for PostgreSQL (database '$$LAB44_DB_NAME', user '$$PGUSER')..."
+        ok=0
+        for _ in $$(seq 1 30); do
+          if psql -d "$$LAB44_DB_NAME" -c 'SELECT 1' >/dev/null 2>&1; then ok=1; break; fi
+          sleep 2
+        done
+        if [ "$$ok" != "1" ]; then
+          echo "[guac-db-init] ERROR: cannot connect to PostgreSQL as '$$PGUSER' on host '$$PGHOST'." >&2
+          echo "[guac-db-init]        Most likely DB_PASSWORD in .env no longer matches the existing" >&2
+          echo "[guac-db-init]        Postgres volume (secrets were regenerated after it was created)." >&2
+          echo "[guac-db-init]        Restore the original .env, or start clean with:" >&2
+          echo "[guac-db-init]          docker compose -f docker-compose.yml down -v && ./scripts/install.sh" >&2
+          exit 1
+        fi
+
+        if psql -d "$$LAB44_DB_NAME" -tAc \
+             "SELECT 1 FROM pg_database WHERE datname = '$$GUAC_DB_NAME'" | grep -q 1; then
+          echo "[guac-db-init] database '$$GUAC_DB_NAME' already exists."
+        else
+          echo "[guac-db-init] database '$$GUAC_DB_NAME' is missing -- creating it."
+          psql -d "$$LAB44_DB_NAME" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE \"$$GUAC_DB_NAME\""
+        fi
+
+        if psql -d "$$GUAC_DB_NAME" -tAc \
+             "SELECT 1 FROM information_schema.tables WHERE table_name = 'guacamole_user'" | grep -q 1; then
+          echo "[guac-db-init] Guacamole schema already present -- nothing to do."
+          exit 0
+        fi
+
+        echo "[guac-db-init] applying Guacamole schema..."
+        psql -d "$$GUAC_DB_NAME" -v ON_ERROR_STOP=1 -q -f /schema/initdb.sql
+
+        # password_hash is a bytea column, so the value must BE bytea. sha256()
+        # returns bytea -- do NOT wrap it in encode(), which returns text and fails
+        # with "column password_hash is of type bytea but expression is of type
+        # text". convert_to() yields the exact UTF-8 bytes Guacamole hashes.
+        # password_salt = NULL selects the legacy unsalted sha256(password) form,
+        # which Guacamole still verifies.
+        echo "[guac-db-init] setting the guacadmin password from GUACAMOLE_ADMIN_PASSWORD..."
+        psql -d "$$GUAC_DB_NAME" -v ON_ERROR_STOP=1 -q <<SQL
+        UPDATE guacamole_user
+           SET password_hash = sha256(convert_to('$$GUAC_ADMIN_PASSWORD', 'UTF8')),
+               password_salt = NULL,
+               password_date = now()
+          WHERE entity_id = (SELECT entity_id
+                               FROM guacamole_entity
+                              WHERE name = 'guacadmin' AND type = 'USER');
+        SQL
+
+        echo "[guac-db-init] Guacamole database ready."
+    volumes:
+      - guac_schema:/schema:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      guac-schema:
+        condition: service_completed_successfully
+    networks: [lab44]
+
+  # The daemon that actually speaks RDP/SSH/VNC to the student VMs.
+  #
+  # NOTE: guacd must be able to reach the IP addresses of the VMs it connects to.
+  # Outbound traffic from a container is NATed by the Docker host, so this works
+  # as long as the host itself can route to your VM subnet. If your VMs live on
+  # an isolated network, add the routes (or `network_mode: host`) here.
+  guacd:
+    image: guacamole/guacd:${GUACAMOLE_VERSION:-1.6.0}
+    container_name: lab44-guacd
+    restart: unless-stopped
+    networks: [lab44]
+
+  guacamole:
+    image: guacamole/guacamole:${GUACAMOLE_VERSION:-1.6.0}
+    container_name: lab44-guacamole
+    restart: unless-stopped
+    ports:
+      # Served at /guacamole on this port -- point your proxy here.
+      - "${GUACAMOLE_BIND:-0.0.0.0}:${GUACAMOLE_PORT:-8080}:8080"
+    environment:
+      GUACD_HOSTNAME: guacd
+      POSTGRESQL_HOSTNAME: db
+      POSTGRESQL_DATABASE: ${GUAC_DB_NAME:-guacamole}
+      POSTGRESQL_USER: ${DB_USER:-lab44}
+      POSTGRESQL_PASSWORD: ${DB_PASSWORD}
+      # Absolute URLs Guacamole generates for itself.
+      WEBAPP_CONTEXT: guacamole
+    depends_on:
+      db:
+        condition: service_healthy
+      guac-db-init:
+        condition: service_completed_successfully
+      guacd:
+        condition: service_started
+    networks: [lab44]
+
+  # ───────────────────────────────────────────────────────────────────────────
+  #  ownCloud -- file storage
+  # ───────────────────────────────────────────────────────────────────────────
+  owncloud-db:
+    image: mariadb:10.11
+    container_name: lab44-owncloud-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${OWNCLOUD_DB_ROOT_PASSWORD:?}
+      MYSQL_DATABASE: owncloud
+      MYSQL_USER: owncloud
+      MYSQL_PASSWORD: ${OWNCLOUD_DB_PASSWORD:?}
+    command:
+      - --transaction-isolation=READ-COMMITTED
+      - --binlog-format=ROW
+      - --max-allowed-packet=128M
+    volumes:
+      - owncloud_db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [lab44]
+
+  owncloud-redis:
+    image: redis:7-alpine
+    container_name: lab44-owncloud-redis
+    restart: unless-stopped
+    networks: [lab44]
+
+  owncloud:
+    image: owncloud/server:${OWNCLOUD_VERSION:-10.16.4}
+    container_name: lab44-owncloud
+    restart: unless-stopped
+    ports:
+      # Point your proxy here. Use a path-free subdomain (owncloud.example.com).
+      - "${OWNCLOUD_BIND:-0.0.0.0}:${OWNCLOUD_PORT:-8081}:8080"
+    environment:
+      # ownCloud rejects requests whose Host header is not trusted. `owncloud`
+      # (the container name) must be listed because Lab44 calls the OCS API
+      # server-to-server over the Docker network.
+      OWNCLOUD_DOMAIN: ${OWNCLOUD_PUBLIC_HOST:-localhost:8081}
+      # Hosts ownCloud accepts. A request whose Host header is not listed gets
+      # "You are accessing the server through an untrusted domain" (HTTP 400).
+      # COMMA-separated — the image documents "Multiple domains need to be
+      # comma-separated"; a space-separated list is treated as a single bogus
+      # domain and then nothing is trusted.
+      # install.sh writes a complete list to .env (container name, localhost and
+      # the LAN address, with and without the port); this default is a minimal
+      # fallback for hand-written configs.
+      OWNCLOUD_TRUSTED_DOMAINS: ${OWNCLOUD_TRUSTED_DOMAINS:-owncloud,owncloud:8080,localhost}
+      OWNCLOUD_DB_TYPE: mysql
+      OWNCLOUD_DB_HOST: owncloud-db
+      OWNCLOUD_DB_NAME: owncloud
+      OWNCLOUD_DB_USERNAME: owncloud
+      OWNCLOUD_DB_PASSWORD: ${OWNCLOUD_DB_PASSWORD}
+      OWNCLOUD_ADMIN_USERNAME: ${OWNCLOUD_ADMIN_USERNAME:-admin}
+      OWNCLOUD_ADMIN_PASSWORD: ${OWNCLOUD_ADMIN_PASSWORD:?}
+      OWNCLOUD_REDIS_ENABLED: "true"
+      OWNCLOUD_REDIS_HOST: owncloud-redis
+      OWNCLOUD_MYSQL_UTF8MB4: "true"
+    volumes:
+      - owncloud_data:/mnt/data
+    depends_on:
+      owncloud-db:
+        condition: service_healthy
+      owncloud-redis:
+        condition: service_started
+    networks: [lab44]
 
 volumes:
   pgdata:
+  guac_schema:
+  owncloud_db:
+  owncloud_data:
+
+networks:
+  lab44:
+    driver: bridge

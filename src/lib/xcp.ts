@@ -1,4 +1,5 @@
 import xmlrpc from "xmlrpc";
+import fs from "fs";
 import { db } from "./db";
 import { getSettingsMap } from "./settings-cache";
 
@@ -8,8 +9,49 @@ export interface XCPConfig {
   pass: string;
 }
 
-const XAPI_CA_CERT = process.env.XCP_CA_CERT || undefined;
+/**
+ * The CA certificate to trust for the XCP-ng host (used when the host has a
+ * private or self-signed certificate, which is the XCP-ng default).
+ *
+ * Accepts EITHER the PEM contents themselves OR a path to a PEM file. The path
+ * form matters in Docker: a multi-line PEM inside an .env value or a compose
+ * `environment:` entry is awkward to write and easy to corrupt, whereas a file
+ * can simply be mounted.
+ *
+ * Unlike XCP_REJECT_UNAUTHORIZED, an unreadable path is not fatal — we warn and
+ * fall back to the system CA store.
+ */
+function loadCaCertificate(): string | undefined {
+  const raw = process.env.XCP_CA_CERT;
+  if (!raw) return undefined;
+
+  // Inline PEM contents.
+  if (raw.includes("-----BEGIN")) return raw;
+
+  // Otherwise treat it as a filesystem path.
+  try {
+    return fs.readFileSync(raw, "utf8");
+  } catch (err) {
+    console.warn(
+      `[xcp] XCP_CA_CERT is set to "${raw}", which is neither PEM contents nor a ` +
+      `readable file (${(err as Error).message}). Falling back to the system CA store.`,
+    );
+    return undefined;
+  }
+}
+
+const XAPI_CA_CERT = loadCaCertificate();
+
+// Only the literal "false" disables verification, so a typo or an empty value
+// keeps certificate validation ON.
 const XAPI_REJECT_UNAUTHORIZED = process.env.XCP_REJECT_UNAUTHORIZED !== "false";
+
+if (!XAPI_REJECT_UNAUTHORIZED) {
+  console.warn(
+    "[xcp] XCP_REJECT_UNAUTHORIZED=false — TLS certificates for the XCP-ng host " +
+    "are NOT being verified. Prefer XCP_CA_CERT with the host's CA certificate.",
+  );
+}
 
 function createSecureClient(config: { host: string; port: number; path: string }) {
   const opts: Record<string, unknown> = {

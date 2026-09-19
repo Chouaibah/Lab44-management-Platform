@@ -192,22 +192,68 @@ export async function ownCloudUserExists(username: string): Promise<boolean> {
 }
 
 /**
+ * Does the given group exist in OwnCloud?
+ *
+ * GET /ocs/v2.php/cloud/groups
+ *   → data.groups = ["admin", "instructor", ...]
+ */
+export async function ownCloudGroupExists(group: string): Promise<boolean> {
+  const config = await getOwnCloudConfig();
+  if (!config) return false;
+  const result = await ocsRequest(config, "GET", "cloud/groups");
+  const groups = result?.data?.ocs?.data?.groups;
+  return Array.isArray(groups) && groups.includes(group);
+}
+
+/**
  * Create a group if it doesn't already exist. Safe to call repeatedly.
  *
  * POST /ocs/v2.php/cloud/groups
  *   body: groupid=<name>
- *   → 100 ok, or 102 "group already exists" (which we treat as success).
  */
 export async function ensureOwnCloudGroup(group: string): Promise<OwnCloudResult> {
   const config = await getOwnCloudConfig();
   if (!config) {
     return { ok: false, status: 0, message: "OwnCloud is not configured.", data: {} };
   }
-  const result = await ocsRequest(config, "POST", "cloud/groups", { groupid: group });
-  // 102 = group already exists in OCS
-  if (!result.ok && (result.status === 102 || (result.message || "").toLowerCase().includes("exists"))) {
-    return { ...result, ok: true };
+
+  // Check first instead of creating and then interpreting the error.
+  //
+  // This previously POSTed unconditionally and treated only status 102 (or a
+  // message containing "exists") as success. ownCloud 10.16 answers a duplicate
+  // group with HTTP 400 and no OCS message, so neither test matched — the FIRST
+  // instructor's click created the group, and every instructor after that failed
+  // with `Failed to ensure group "instructor": 400` before anything else ran.
+  if (await ownCloudGroupExists(group)) {
+    return { ok: true, status: 100, message: "Group already exists.", data: {} };
   }
+
+  const result = await ocsRequest(config, "POST", "cloud/groups", { groupid: group });
+  if (result.ok) return result;
+
+  // A bare HTTP 400 with no OCS envelope is what ownCloud 10.16 returns for a
+  // group that already exists — confirmed empirically: deleting the group in
+  // ownCloud makes the next provision succeed, recreating it makes this call
+  // fail again. `group` is a fixed constant ("instructor"), so a 400 here cannot
+  // mean "invalid name" and is safe to treat as "already exists".
+  if (result.status === 400 && !result.message) {
+    console.log(
+      `[OwnCloud] Group "${group}" create returned HTTP 400 with no OCS message — ` +
+      `treating it as "already exists".`,
+    );
+    return {
+      ok: true,
+      status: 100,
+      message: "Group already exists (inferred from HTTP 400).",
+      data: result.data,
+    };
+  }
+
+  // Otherwise confirm against the real state rather than guessing.
+  if (await ownCloudGroupExists(group)) {
+    return { ok: true, status: 100, message: "Group already exists.", data: result.data };
+  }
+
   return result;
 }
 
@@ -235,10 +281,31 @@ export async function setOwnCloudUserQuota(
 }
 
 /**
+ * Is the user already a member of the group?
+ *
+ * GET /ocs/v2.php/cloud/users/{userid}/groups
+ *   → data.groups = ["instructor", ...]
+ */
+export async function ownCloudUserInGroup(
+  username: string,
+  group: string = INSTRUCTOR_GROUP,
+): Promise<boolean> {
+  const config = await getOwnCloudConfig();
+  if (!config) return false;
+  const safeUser = encodeURIComponent(username);
+  const result = await ocsRequest(config, "GET", `cloud/users/${safeUser}/groups`);
+  const groups = result?.data?.ocs?.data?.groups;
+  return Array.isArray(groups) && groups.includes(group);
+}
+
+/**
  * Add an existing OwnCloud user to a group.
  *
  * POST /ocs/v2.php/cloud/users/{userid}/groups
  *   body: groupid=<group>
+ *
+ * Idempotent: re-adding an existing member is an error in OwnCloud, which would
+ * otherwise log a warning on every repeat click of the OwnCloud button.
  */
 export async function addOwnCloudUserToGroup(
   username: string,
@@ -248,8 +315,20 @@ export async function addOwnCloudUserToGroup(
   if (!config) {
     return { ok: false, status: 0, message: "OwnCloud is not configured.", data: {} };
   }
+
+  if (await ownCloudUserInGroup(username, group)) {
+    return { ok: true, status: 100, message: "User is already in the group.", data: {} };
+  }
+
   const safeUser = encodeURIComponent(username);
-  return ocsRequest(config, "POST", `cloud/users/${safeUser}/groups`, { groupid: group });
+  const result = await ocsRequest(config, "POST", `cloud/users/${safeUser}/groups`, { groupid: group });
+  if (result.ok) return result;
+
+  // Confirm before reporting a failure.
+  if (await ownCloudUserInGroup(username, group)) {
+    return { ok: true, status: 100, message: "User is already in the group.", data: result.data };
+  }
+  return result;
 }
 
 /**
@@ -298,9 +377,11 @@ export async function createOwnCloudUser(
 
     const createResult = await ocsRequest(config, "POST", "cloud/users", createBody);
     if (!createResult.ok) {
-      // 102 = user already exists (race / partial state) — treat as success
-      if (createResult.status === 102 ||
-          (createResult.message || "").toLowerCase().includes("already exists")) {
+      // The user may have appeared since the check above (a race), or this
+      // ownCloud version may report a duplicate with a bare HTTP 400 rather than
+      // the documented 102. Confirm against the real state instead of trusting
+      // the status code — the same mistake that broke group creation.
+      if (await ownCloudUserExists(username)) {
         // fall through to quota + group
       } else {
         console.error("[OwnCloud] Create user failed:", JSON.stringify(createResult.data));
@@ -376,13 +457,25 @@ export async function deleteOwnCloudUser(username: string): Promise<{ ok: boolea
 
 /**
  * Build the URL an instructor should visit to log into OwnCloud.
- * Just the base URL with a trailing slash — OwnCloud's web UI will
- * redirect unauthenticated users to the login page.
+ *
+ * This link is opened by a **browser**, which cannot resolve the Docker-internal
+ * hostname used for the OCS API. So it prefers the separately configured public
+ * URL and falls back to the internal one (correct whenever the internal URL is
+ * itself publicly reachable, e.g. a single public hostname).
+ *
+ *   owncloud_url         → internal, used by the server for OCS API calls
+ *   owncloud_public_url  → public, handed to the browser
  */
 export async function getOwnCloudLoginUrl(): Promise<string | null> {
   const config = await getOwnCloudConfig();
   if (!config) return null;
-  return `${config.url}/`;
+
+  const map = await getSettingsMap();
+  const publicUrl = (map.owncloud_public_url || "").trim();
+  if (!publicUrl) return `${config.url}/`;
+
+  const withScheme = /^https?:\/\//i.test(publicUrl) ? publicUrl : `https://${publicUrl}`;
+  return `${withScheme.replace(/\/+$/, "")}/`;
 }
 
 // ─── Per-instructor encrypted password storage ───────────────────────────────

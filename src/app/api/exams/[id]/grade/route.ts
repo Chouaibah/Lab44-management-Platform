@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
+import { handleAuthError } from "@/lib/api-error";
 
 // PATCH /api/exams/[id]/grade — manual grading, instructor or admin only
 // Instructors can only grade attempts for their own exams
@@ -66,15 +67,20 @@ export async function PATCH(
         await tx.examAnswer.update({ where: { id: answerId }, data: { pointsEarned } });
       }
 
-      // Recalculate attempt totals
+      // Recalculate attempt totals. The denominator is every question in the
+      // exam — not just the ones this attempt answered (see submit/route.ts).
       const allAnswers  = await tx.examAnswer.findMany({
         where:   { attemptId: parsedAttemptId },
         include: { question: { select: { points: true } } },
       });
+      const examQuestions = await tx.examQuestion.findMany({
+        where:  { examId },
+        select: { points: true },
+      });
       const totalPoints = allAnswers.reduce((sum, a) => sum + (a.pointsEarned ?? 0), 0);
-      const maxPoints   = allAnswers.reduce((sum, a) => sum + (a.question?.points ?? 0), 0);
+      const maxPoints   = examQuestions.reduce((sum, q) => sum + q.points, 0);
       const score       = maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 20 * 100) / 100 : 0;
-      const passed      = score >= 10;
+      const passed      = exam.passingScore != null ? score >= exam.passingScore : score >= 10;
 
       await tx.examAttempt.update({
         where: { id: parsedAttemptId },
@@ -119,6 +125,8 @@ export async function PATCH(
       },
     });
   } catch (error) {
+    const authResponse = handleAuthError(error);
+    if (authResponse) return authResponse;
     const msg = error instanceof Error ? error.message : "Failed to update grades.";
     console.error("Grade update error:", error);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });

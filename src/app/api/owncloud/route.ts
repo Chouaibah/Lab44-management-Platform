@@ -33,6 +33,10 @@ export async function GET() {
     const map = await getSettingsMap();
     const result: Record<string, any> = {
       owncloud_url: map.owncloud_url || "",
+      // Browser-facing URL used for login links. Empty means "same as
+      // owncloud_url", which is correct whenever the internal URL is itself
+      // reachable by users' browsers.
+      owncloud_public_url: map.owncloud_public_url || "",
       // Indicates whether the "instructor" group + 1 GB quota are applied
       // automatically when an instructor account is created.
       owncloud_instructor_group: "instructor",
@@ -59,7 +63,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Admin access required." }, { status: 403 });
     }
 
-    const { url, adminUsername, adminPassword } = await request.json();
+    const { url, publicUrl, adminUsername, adminPassword } = await request.json();
     if (!url || !adminUsername || !adminPassword) {
       return NextResponse.json(
         { error: "URL, root username, and root password are required." },
@@ -70,6 +74,9 @@ export async function POST(request: Request) {
     const normalizedUrl = normalizeUrl(url);
 
     await upsertSetting("owncloud_url", normalizedUrl);
+    if (publicUrl !== undefined) {
+      await upsertSetting("owncloud_public_url", publicUrl ? normalizeUrl(publicUrl) : "");
+    }
     await upsertSetting("owncloud_admin_username", adminUsername.trim());
     // NOTE: stored as plaintext in the settings table — the table is
     // admin-only and `owncloud_admin_password` is stripped from all
@@ -100,12 +107,15 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Admin access required." }, { status: 403 });
     }
 
-    const { url, adminUsername, adminPassword } = await request.json();
+    const { url, publicUrl, adminUsername, adminPassword } = await request.json();
     if (!url) {
       return NextResponse.json({ error: "URL is required." }, { status: 400 });
     }
 
     await upsertSetting("owncloud_url", normalizeUrl(url));
+    if (publicUrl !== undefined) {
+      await upsertSetting("owncloud_public_url", publicUrl ? normalizeUrl(publicUrl) : "");
+    }
     if (adminUsername !== undefined) {
       await upsertSetting("owncloud_admin_username", adminUsername.trim());
     }

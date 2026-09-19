@@ -25,6 +25,20 @@ export async function POST(
       startVM: false,
     });
 
+    // A provisioning failure is not an approval — report it as such.
+    if (result.ok === false) {
+      await logAudit({
+        type: "vm",
+        action: "update",
+        message: `VM request #${id} approval failed: ${result.error}`,
+        userId: session.userId,
+        userRole: session.role,
+        labId: session.labId,
+        metadata: { requestId: id, vmIp, accessProtocol, error: result.error },
+      });
+      return NextResponse.json(result, { status: 502 });
+    }
+
     await logAudit({
       type: "vm",
       action: "approve",

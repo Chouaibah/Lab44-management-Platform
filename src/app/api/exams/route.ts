@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { getSession, requireRole } from "@/lib/auth";
+import { handleAuthError } from "@/lib/api-error";
 
 // GET /api/exams - List exams with optional filters
 // - Students: only published/active exams in their enrolled labs
@@ -112,6 +113,8 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ ok: true, exams: result });
   } catch (error) {
+    const authResponse = handleAuthError(error);
+    if (authResponse) return authResponse;
     console.error("Exams list error:", error);
     return NextResponse.json({ ok: false, error: "Failed to load exams." }, { status: 500 });
   }
@@ -214,6 +217,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, exam }, { status: 201 });
   } catch (error) {
+    const authResponse = handleAuthError(error);
+    if (authResponse) return authResponse;
     const msg = error instanceof Error ? error.message : "Failed to create exam.";
     console.error("Exam create error:", error);
     return NextResponse.json({ ok: false, error: msg.slice(0, 200) }, { status: 500 });

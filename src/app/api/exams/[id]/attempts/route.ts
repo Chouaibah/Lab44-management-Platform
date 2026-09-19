@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
+import { handleAuthError } from "@/lib/api-error";
 
 // GET /api/exams/[id]/attempts — instructor or admin only
 // Instructors can only view attempts for exams in their own labs
@@ -76,6 +77,8 @@ export async function GET(
 
     return NextResponse.json({ ok: true, attempts: result });
   } catch (error) {
+    const authResponse = handleAuthError(error);
+    if (authResponse) return authResponse;
     console.error("Exam attempts list error:", error);
     return NextResponse.json({ ok: false, error: "Failed to load exam attempts." }, { status: 500 });
   }

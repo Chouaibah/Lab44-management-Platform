@@ -25,6 +25,10 @@ export async function PATCH(
         accessProtocol: accessProtocol || null,
         startVM: false,
       });
+      // Provisioning failures must not look like a successful approval to the client.
+      if (result.ok === false) {
+        return NextResponse.json(result, { status: 502 });
+      }
       return NextResponse.json({ ok: true, ...result });
     }
 
