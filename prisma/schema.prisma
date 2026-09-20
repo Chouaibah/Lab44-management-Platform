@@ -158,6 +158,12 @@ model VMRequest {
   guacConnectionId String?   @map("guac_connection_id")
   guacDataSource   String?   @map("guac_data_source")
   guacProtocol     String?   @map("guac_protocol")
+  // Nexterm (used instead of the guac_* columns when remote_provider=nexterm).
+  // Nexterm has no flat list endpoint to look entries up by name — GET
+  // /api/entries/list returns a nested folder tree — so the ids we create are
+  // persisted here and PATCHed directly on later connects.
+  nextermEntryId    Int?     @map("nexterm_entry_id")
+  nextermIdentityId Int?     @map("nexterm_identity_id")
   requestedAt      DateTime  @default(now()) @map("requested_at")
   reviewedAt       DateTime? @map("reviewed_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")

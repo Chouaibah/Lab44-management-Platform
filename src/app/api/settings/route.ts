@@ -10,6 +10,10 @@ const SENSITIVE_KEYS = new Set([
   "xcpng_password",
   "guacamole_root_password",
   "owncloud_admin_password",
+  // Nexterm's administrator password, used for its API. Without this entry it
+  // was returned in plaintext by GET /api/settings to *any* authenticated
+  // caller, students included.
+  "nexterm_admin_password",
 ]);
 
 /**

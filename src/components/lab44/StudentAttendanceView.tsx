@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { useLab44Store } from '@/store/lab44';
 import type { Attendance } from '@/types';
+import { SessionLiveCard } from '@/components/lab44/SessionLiveCard';
 
 import {
   Card, CardContent, CardHeader, CardTitle,
@@ -20,7 +21,7 @@ import {
 } from '@/components/ui/table';
 
 import {
-  CalendarCheck, Calendar, RefreshCw, CheckCircle2, Activity,
+  CalendarCheck, Calendar, RefreshCw, Activity,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -233,94 +234,42 @@ export default function StudentAttendanceView() {
           </div>
         </div>
 
-        {/* ─── 2. Active Session Card (PROMINENT) ──────────────────────────── */}
-        <AnimatePresence>
-          {sessionOpen && (
-            <motion.div
-              key="active-session"
-              initial={{ opacity: 0, y: -10, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -10, scale: 0.98 }}
-              transition={{ duration: 0.4, ease: 'easeOut' }}
-              className="mb-6"
-            >
-              <Card className="shadow-md overflow-hidden">
-                <CardContent className="p-6">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                      <div className="relative">
-                        <div className={`flex h-16 w-16 items-center justify-center rounded-2xl ${alreadyMarked ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-emerald-100 dark:bg-emerald-900/40'}`}>
-                          {alreadyMarked ? (
-                            <CheckCircle2 className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
-                          ) : (
-                            <CalendarCheck className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
-                          )}
-                        </div>
-                        {!alreadyMarked && (
-                          <span className="absolute -top-1 -right-1 flex h-4 w-4">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" style={{ animationDuration: '1.5s' }} />
-                            <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500" />
-                          </span>
-                        )}
-                      </div>
-                      <div>
-                        {alreadyMarked ? (
-                          <>
-                            <div className="flex items-center gap-2">
-                              <h3 className="text-lg font-bold text-emerald-700 dark:text-emerald-400">
-                                You&apos;re Marked Present!
-                              </h3>
-                              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400 dark:border-emerald-800 text-[10px] px-1.5 py-0">
-                                <CheckCircle2 className="h-3 w-3 mr-0.5" /> Confirmed
-                              </Badge>
-                            </div>
-                            <p className="text-sm text-muted-foreground mt-0.5">
-                              Attendance recorded for <span className="font-mono font-medium">{sessionDate}</span>
-                            </p>
-                          </>
-                        ) : (
-                          <>
-                            <div className="flex items-center gap-2">
-                              <h3 className="text-lg font-bold text-emerald-700 dark:text-emerald-400">
-                                Attendance Session Open
-                              </h3>
-                              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400 dark:border-emerald-800 text-[10px] px-1.5 py-0 animate-pulse">
-                                LIVE
-                              </Badge>
-                            </div>
-                            <p className="text-sm text-muted-foreground mt-0.5">
-                              Mark yourself present for <span className="font-mono font-medium">{sessionDate}</span>
-                              {sessionGroupName && (
-                                <> &middot; Group: <span className="font-semibold text-violet-600 dark:text-violet-400">{sessionGroupName}</span></>
-                              )}
-                            </p>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    {!alreadyMarked && (
-                      <Button
-                        onClick={handleMarkPresent}
-                        disabled={markingPresent}
-                        size="lg"
-                        className="gap-2 shadow-lg hover:shadow-xl transition-all text-base px-8 relative overflow-hidden group"
-                      >
-                        {markingPresent ? (
-                          <RefreshCw className="h-5 w-5 animate-spin" />
-                        ) : (
-                          <CheckCircle2 className="h-5 w-5" />
-                        )}
-                        {markingPresent ? 'Marking...' : 'Mark Present'}
-                        {/* Pulsing glow effect */}
-                        <span className="absolute inset-0 -z-10 rounded-md bg-emerald-400/30 animate-ping" style={{ animationDuration: '2s' }} />
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
-        </AnimatePresence>
+          {/* ─── 2. Attendance Session Live (instructor card style) ───────── */}
+          <AnimatePresence>
+            {sessionOpen && (
+              <SessionLiveCard
+                animated
+                className="mb-6"
+                date={sessionDate}
+                marked={alreadyMarked}
+                marking={markingPresent}
+                onMark={handleMarkPresent}
+                subtitle={
+                  alreadyMarked ? (
+                    <>
+                      Attendance recorded for <span className="font-mono font-medium">{sessionDate}</span>
+                      {sessionGroupName && (
+                        <>
+                          {' '}&middot; Group:{' '}
+                          <span className="font-semibold text-violet-600 dark:text-violet-400">{sessionGroupName}</span>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      Mark yourself present for <span className="font-mono font-medium">{sessionDate}</span>
+                      {sessionGroupName && (
+                        <>
+                          {' '}&middot; Group:{' '}
+                          <span className="font-semibold text-violet-600 dark:text-violet-400">{sessionGroupName}</span>
+                        </>
+                      )}
+                    </>
+                  )
+                }
+              />
+            )}
+          </AnimatePresence>
 
         {/* ─── 3. Attendance Records Table ──────────────────────────────────── */}
         <Card className="shadow-sm mb-6 overflow-hidden">

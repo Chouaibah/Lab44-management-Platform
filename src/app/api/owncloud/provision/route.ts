@@ -108,7 +108,6 @@ export async function POST() {
       username,
       ocPassword,
       instructor.displayName,
-      instructor.email || undefined,
     );
 
     if (!result.ok) {
@@ -116,6 +115,20 @@ export async function POST() {
         ok: false,
         error: result.error || "Failed to create OwnCloud account.",
       });
+    }
+
+    // If the account turned out to exist already (created between the existence
+    // check above and this call), createOwnCloudUser did NOT apply our password.
+    // Reset it explicitly so the password we hand back is the one that works —
+    // and therefore the one we are about to store.
+    if (result.created === false) {
+      const reset = await setOwnCloudUserPassword(username, ocPassword);
+      if (!reset.ok) {
+        return NextResponse.json({
+          ok: false,
+          error: `Failed to set OwnCloud password: ${reset.message || reset.status}`,
+        });
+      }
     }
 
     try {

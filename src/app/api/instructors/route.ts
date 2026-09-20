@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { hash } from "bcryptjs";
-import { getSession, hashPassword } from "@/lib/auth";
+import { getSession, hashPassword, generateSecurePassword } from "@/lib/auth";
 import { logAudit } from "@/lib/audit-log";
 import {
   createOwnCloudUser,
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Insufficient permissions." }, { status: 403 });
     }
 
-    const { username, password, displayName, email, labId, labIds, securityQuestion, securityAnswer } = await request.json();
+    const { username, password, displayName, labId, labIds, securityQuestion, securityAnswer } = await request.json();
 
     if (!username || !password || !displayName) {
       return NextResponse.json(
@@ -110,7 +110,6 @@ export async function POST(request: Request) {
         username: username.trim(),
         password: hashedPassword,
         displayName: displayName.trim(),
-        email: email?.trim() || null,
         labId: primaryLabId,
         securityQuestion: securityQuestion || null,
         securityAnswer: hashedSecurityAnswer,
@@ -136,26 +135,35 @@ export async function POST(request: Request) {
       labId: primaryLabId,
     });
 
-    // Create OwnCloud account for instructor (non-blocking)
-    // The OwnCloud account is created with the SAME password the admin chose
-    // for the platform, so the instructor can use one set of credentials.
-    // We also store it encrypted so we can later show it to the instructor
-    // via the provision endpoint (OwnCloud doesn't support URL auto-login).
+    // Create the OwnCloud account with its OWN random password (non-blocking).
+    //
+    // This deliberately does NOT reuse the platform password the admin typed.
+    // Separate credentials mean changing one cannot silently invalidate the
+    // other, and it matches what the ownCloud button already assumes. The
+    // password is stored encrypted so the instructor can retrieve it there
+    // (OwnCloud has no URL-based auto-login).
+    const ocPassword = generateSecurePassword(16);
     const ocResult = await createOwnCloudUser(
       username.trim(),
-      password,
-      displayName.trim(),
-      email?.trim() || undefined
+      ocPassword,
+      displayName.trim()
     );
+
     if (!ocResult.ok) {
       console.warn(`OwnCloud account creation for instructor "${username}" failed: ${ocResult.error}`);
-    } else {
-      // Only store the password if the OwnCloud account was created successfully.
+    } else if (ocResult.created) {
       try {
-        await storeInstructorOwnCloudPassword(username.trim(), password);
+        await storeInstructorOwnCloudPassword(username.trim(), ocPassword);
       } catch (storeErr) {
         console.warn(`Failed to store OwnCloud password for "${username}":`, storeErr);
       }
+    } else {
+      // The account already existed, so the password above was never applied.
+      // Storing it would hand the instructor a password that does not work;
+      // the ownCloud button resets and stores one on first use instead.
+      console.log(
+        `[OwnCloud] Account for "${username}" already existed — left its password unchanged.`,
+      );
     }
 
     return NextResponse.json({

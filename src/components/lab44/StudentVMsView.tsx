@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { launchNextermConsole, normalizeNextermBaseUrl } from '@/lib/nexterm-launch';
 
 import {
   Plus, RefreshCw, Server, Monitor, Globe, Terminal, Copy, Check,
@@ -288,15 +289,28 @@ export default function StudentVMsView() {
       });
       const data = await res.json();
       if (res.ok) {
-        const connectionStr = `${data.identifier}\0c\0${data.dataSource}`;
-        const clientId = btoa(connectionStr).replace(/=+$/, '');
-        let baseUrl = (data.url || '').replace(/[/#]+$/, '');
-        if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-          baseUrl = `http://${baseUrl}`;
+        const baseUrl = normalizeNextermBaseUrl(data.url);
+
+        if (data.provider === 'nexterm') {
+          // Nexterm needs TWO navigations: the first carries the session token
+          // (signing the student in — nothing typed), the second opens their
+          // entry. A single combined URL loses connectId, because Nexterm
+          // rewrites the URL as soon as it stores the token. The shared helper
+          // waits for that write instead of racing it with a fixed timer.
+          launchNextermConsole({
+            baseUrl,
+            sessionToken: data.authToken,
+            entryId: data.identifier,
+          });
+          toast.success('Opening the console...');
+          closeConnectDialog();
+        } else {
+          const connectionStr = `${data.identifier}\0c\0${data.dataSource}`;
+          const clientId = btoa(connectionStr).replace(/=+$/, '');
+          window.open(`${baseUrl}/#/client/${clientId}?token=${data.authToken}`, '_blank', 'noopener,noreferrer');
+          toast.success('Opening remote session...');
+          closeConnectDialog();
         }
-        window.open(`${baseUrl}/#/client/${clientId}?token=${data.authToken}`, '_blank', 'noopener,noreferrer');
-        toast.success('Opening remote session...');
-        closeConnectDialog();
       } else {
         toast.error(data.error || 'Could not connect to VM');
       }

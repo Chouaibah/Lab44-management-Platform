@@ -48,8 +48,19 @@ function buildEntries(): Array<{ key: string; value: string }> {
     { key: "owncloud_admin_username", value: process.env.OWNCLOUD_ADMIN_USERNAME },
     { key: "owncloud_admin_password", value: process.env.OWNCLOUD_ADMIN_PASSWORD },
 
+    // ── Nexterm (only used when remote_provider = "nexterm") ─────────────────
+    { key: "nexterm_url", value: process.env.NEXTERM_INTERNAL_URL, scheme: "http" },
+    { key: "nexterm_public_url", value: process.env.NEXTERM_PUBLIC_URL, scheme: "https" },
+    { key: "nexterm_admin_username", value: process.env.NEXTERM_ADMIN_USERNAME },
+    { key: "nexterm_admin_password", value: process.env.NEXTERM_ADMIN_PASSWORD },
+
     // ── Platform flags ───────────────────────────────────────────────────────
     { key: "signup_enabled", value: process.env.SIGNUP_ENABLED },
+
+    // Which remote-console backend Lab44 provisions VM access through:
+    // "guacamole" (default) or "nexterm". Seeded once; changing it later is done
+    // in the admin UI or by switching the stack with ./scripts/install.sh.
+    { key: "remote_provider", value: process.env.REMOTE_PROVIDER },
   ];
 
   return raw

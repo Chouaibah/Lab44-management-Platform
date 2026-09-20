@@ -26,10 +26,26 @@ ENV_FILE=".env"
 COMPOSE_FILE="docker-compose.yml"
 START=1
 
+# Remote-console backend: guacamole or nexterm. Both are shipped in the compose
+# file; this selects which set of containers is started and which backend Lab44
+# provisions consoles through.
+#
+# Resolution order:
+#   1. an explicit flag / LAB44_REMOTE        (always wins)
+#   2. REMOTE_PROVIDER already recorded in .env  (re-runs keep their choice)
+#   3. an interactive prompt                  (fresh install with a terminal)
+#   4. guacamole                              (non-interactive fallback)
+REMOTE_PROVIDER="${LAB44_REMOTE:-}"
+REMOTE_CHOSEN=0
+[ -n "$REMOTE_PROVIDER" ] && REMOTE_CHOSEN=1
+
 for arg in "$@"; do
   case "$arg" in
     --no-start) START=0 ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    --remote=*) REMOTE_PROVIDER="${arg#--remote=}"; REMOTE_CHOSEN=1 ;;
+    --nexterm)  REMOTE_PROVIDER="nexterm"; REMOTE_CHOSEN=1 ;;
+    --guacamole) REMOTE_PROVIDER="guacamole"; REMOTE_CHOSEN=1 ;;
+    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -37,6 +53,63 @@ done
 log()  { printf '\033[1;34m[lab44]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[lab44]\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m[lab44]\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Validate an explicitly supplied provider now that `die` exists.
+if [ "$REMOTE_CHOSEN" -eq 1 ]; then
+  case "$REMOTE_PROVIDER" in
+    guacamole|nexterm) : ;;
+    *) die "Unknown remote provider '$REMOTE_PROVIDER' (expected 'guacamole' or 'nexterm')." ;;
+  esac
+fi
+
+# ── Pick the remote-console backend ───────────────────────────────────────────
+# Never blocks a non-interactive run: piped/CI invocations fall back to the
+# default instead of waiting for input that will never come.
+choose_remote_provider() {
+  # 1. Explicit flag or environment variable — already validated above.
+  if [ "$REMOTE_CHOSEN" -eq 1 ]; then
+    return
+  fi
+
+  # 2. An existing .env records what this install was created with. Re-running
+  #    the installer should keep it, not silently switch backends.
+  if [ -f "$ENV_FILE" ]; then
+    existing_provider=$(sed -n 's/^REMOTE_PROVIDER=//p' "$ENV_FILE" | head -1)
+    case "$existing_provider" in
+      guacamole|nexterm)
+        REMOTE_PROVIDER="$existing_provider"
+        log "Remote console: $REMOTE_PROVIDER (from $ENV_FILE — override with --remote=nexterm)"
+        return
+        ;;
+    esac
+  fi
+
+  # 3. Fresh install: ask, but only when there is a terminal to ask on.
+  if [ ! -t 0 ]; then
+    REMOTE_PROVIDER="guacamole"
+    warn "No terminal available to prompt on — defaulting to '$REMOTE_PROVIDER'."
+    warn "Choose explicitly with: --remote=nexterm"
+    return
+  fi
+
+  printf '\n  Which remote-console backend should Lab44 use?\n\n'
+  printf '    1) Nexterm     SSH / RDP / VNC — the console opens straight into the VM\n'
+  printf '    2) Guacamole   the existing remote desktop gateway\n\n'
+
+  while :; do
+    printf '  Enter 1 or 2 [2]: '
+    read -r choice || choice=""
+    case "$choice" in
+      ""|2|guacamole|g) REMOTE_PROVIDER="guacamole"; break ;;
+      1|nexterm|n)      REMOTE_PROVIDER="nexterm";    break ;;
+      *) printf '  Please enter 1 or 2.\n' ;;
+    esac
+  done
+  printf '\n'
+  log "Remote console: $REMOTE_PROVIDER"
+}
+
+choose_remote_provider
 
 command -v openssl >/dev/null 2>&1 || die "openssl is required to generate secrets."
 
@@ -152,6 +225,7 @@ EOF
 
   GUACAMOLE_PUBLIC_URL=${GUACAMOLE_PUBLIC_URL:-"http://${HOST_IP}:8080"}
   OWNCLOUD_PUBLIC_URL=${OWNCLOUD_PUBLIC_URL:-"http://${HOST_IP}:8081"}
+  NEXTERM_PUBLIC_URL=${NEXTERM_PUBLIC_URL:-"http://${HOST_IP}:6989"}
 
   # The bare host:port part of the ownCloud URL.
   OWNCLOUD_PUBLIC_HOST=$(host_of "$OWNCLOUD_PUBLIC_URL")
@@ -234,6 +308,23 @@ OWNCLOUD_PUBLIC_HOST=${OWNCLOUD_PUBLIC_HOST}
 # the container:  docker compose -f docker-compose.yml up -d --force-recreate owncloud
 OWNCLOUD_TRUSTED_DOMAINS=${OWNCLOUD_TRUSTED_DOMAINS}
 
+# ── Nexterm (alternative to Guacamole) ───────────────────────────────────────
+# Only started/used when REMOTE_PROVIDER=nexterm above.
+NEXTERM_VERSION=latest
+# REQUIRED by Nexterm. It encrypts stored credentials and SSH keys, so losing it
+# makes them undecryptable — back it up with the rest of this file.
+NEXTERM_ENCRYPTION_KEY=$(rand_hex 32)
+# Lab44 creates this account inside Nexterm on first use (Nexterm turns the very
+# first registered account into the administrator). 3-15 characters, letters and
+# digits only.
+NEXTERM_ADMIN_USERNAME=lab44admin
+NEXTERM_ADMIN_PASSWORD=$(rand_hex 16)
+# Server-side URL (inside the Docker network).
+NEXTERM_INTERNAL_URL=http://nexterm:6989
+# Browser-facing URL. Point this at your reverse proxy hostname, e.g.
+# https://nexterm.example.com — students are sent here to open their console.
+NEXTERM_PUBLIC_URL=${NEXTERM_PUBLIC_URL}
+
 # ── XCP-ng hypervisor (optional) ─────────────────────────────────────────────
 # Leave blank to configure it later in the admin UI (Settings → XCP-ng).
 XCPNG_HOST=
@@ -265,8 +356,14 @@ XCP_REJECT_UNAUTHORIZED=false
 XCP_CA_CERT=
 
 # ── Platform options ─────────────────────────────────────────────────────────
+
+# Remote-console provider: "guacamole" or "nexterm". Selects which service stack
+# is started and which one Lab44 provisions VM consoles through. Switch with:
+#   sudo ./scripts/install.sh --remote=nexterm
+REMOTE_PROVIDER=${REMOTE_PROVIDER}
+
 # Allow students to create their own accounts.
-SIGNUP_ENABLED=false
+SIGNUP_ENABLED=true
 
 # Session cookie policy.
 #
@@ -329,6 +426,9 @@ if [ "$START" -eq 0 ]; then
     log "  DB_PASSWORD:          $(grep '^DB_PASSWORD=' "$ENV_FILE" | cut -d= -f2)"
     log "  GUACAMOLE_ADMIN_PASSWORD: $(grep '^GUACAMOLE_ADMIN_PASSWORD=' "$ENV_FILE" | cut -d= -f2)"
     log "  OWNCLOUD_ADMIN_PASSWORD: $(grep '^OWNCLOUD_ADMIN_PASSWORD=' "$ENV_FILE" | cut -d= -f2)"
+    log "  NEXTERM_ADMIN_USERNAME:  $(grep '^NEXTERM_ADMIN_USERNAME=' "$ENV_FILE" | cut -d= -f2)"
+    log "  NEXTERM_ADMIN_PASSWORD:  $(grep '^NEXTERM_ADMIN_PASSWORD=' "$ENV_FILE" | cut -d= -f2)"
+    log "  NEXTERM_ENCRYPTION_KEY:  $(grep '^NEXTERM_ENCRYPTION_KEY=' "$ENV_FILE" | cut -d= -f2)"
     log "  CRON_SECRET:          $(grep '^CRON_SECRET=' "$ENV_FILE" | cut -d= -f2)"
   fi
   exit 0
@@ -466,14 +566,50 @@ fi
 # --force-recreate is deliberate: podman-compose (and some docker-compose
 # versions) will happily leave existing containers running when only their
 # config changed, so a fixed healthcheck or command would silently not apply.
-log "Building and starting the rest of the stack (this can take several minutes on first run)..."
+# Only the chosen remote-console provider is started. Both live in one compose
+# file so the two variants cannot drift apart, and the unused one simply stays
+# defined-but-stopped. Guacamole: guacd + its schema/db init jobs + the webapp.
+# Nexterm: a single all-in-one container (server, web client and engine).
+# Keep .env (and the app's stored setting) in step with the chosen backend.
+# Needed because the settings seeder only ever INSERTS: on an existing install it
+# will not overwrite a previous value, so switching backends has to be explicit.
+if [ -f "$ENV_FILE" ]; then
+  current_in_env=$(sed -n 's/^REMOTE_PROVIDER=//p' "$ENV_FILE" | head -1)
+  if [ "$current_in_env" != "$REMOTE_PROVIDER" ]; then
+    log "Switching remote console to '$REMOTE_PROVIDER'..."
+
+    if grep -q '^REMOTE_PROVIDER=' "$ENV_FILE"; then
+      sed -i "s|^REMOTE_PROVIDER=.*|REMOTE_PROVIDER=$REMOTE_PROVIDER|" "$ENV_FILE" 2>/dev/null \
+        || warn "Could not update REMOTE_PROVIDER in $ENV_FILE (permissions?)."
+    else
+      printf '\nREMOTE_PROVIDER=%s\n' "$REMOTE_PROVIDER" >> "$ENV_FILE" 2>/dev/null \
+        || warn "Could not append REMOTE_PROVIDER to $ENV_FILE."
+    fi
+
+    # shellcheck disable=SC2086
+    $COMPOSE -f "$COMPOSE_FILE" exec -T db \
+      psql -U "${DB_USER_V:-lab44}" -d "${DB_NAME_V:-lab44}" -c \
+      "insert into settings (key, value) values ('remote_provider', '$REMOTE_PROVIDER')
+       on conflict (key) do update set value = excluded.value" >/dev/null 2>&1 \
+      || warn "Could not update the remote_provider setting — change it in Admin → Settings."
+  fi
+fi
+
+BASE_SERVICES="db app-migrate app owncloud-db owncloud-redis owncloud"
+if [ "$REMOTE_PROVIDER" = "nexterm" ]; then
+  REMOTE_SERVICES="nexterm"
+else
+  REMOTE_SERVICES="guac-schema guac-db-init guacd guacamole"
+fi
+
+log "Building and starting the stack (remote console: $REMOTE_PROVIDER)..."
 # shellcheck disable=SC2086
-if ! $COMPOSE -f "$COMPOSE_FILE" up -d --build --force-recreate; then
+if ! $COMPOSE -f "$COMPOSE_FILE" up -d --build --force-recreate $BASE_SERVICES $REMOTE_SERVICES; then
   # Not every compose provider (e.g. some podman-compose versions) accepts
   # --force-recreate. Fall back rather than failing the whole install.
   warn "--force-recreate was rejected; retrying without it."
   # shellcheck disable=SC2086
-  $COMPOSE -f "$COMPOSE_FILE" up -d --build
+  $COMPOSE -f "$COMPOSE_FILE" up -d --build $BASE_SERVICES $REMOTE_SERVICES
 fi
 
 cat <<'EOF'
@@ -483,8 +619,8 @@ cat <<'EOF'
  Lab44 schema, the Guacamole schema and install ownCloud.
 
  Check progress:
-     docker compose -f docker-composeV2.yml ps
-     docker compose -f docker-composeV2.yml logs -f app
+     docker compose -f docker-compose.yml ps
+     docker compose -f docker-compose.yml logs -f app
 
  Then open the app and log in as administrator with the password in .env
  (ADMIN_PASSWORD).
@@ -510,4 +646,7 @@ EOF
   log "  DB_PASSWORD:          $(grep '^DB_PASSWORD=' "$ENV_FILE" | cut -d= -f2)"
   log "  GUACAMOLE_ADMIN_PASSWORD: $(grep '^GUACAMOLE_ADMIN_PASSWORD=' "$ENV_FILE" | cut -d= -f2)"
   log "  OWNCLOUD_ADMIN_PASSWORD: $(grep '^OWNCLOUD_ADMIN_PASSWORD=' "$ENV_FILE" | cut -d= -f2)"
+  log "  NEXTERM_ADMIN_USERNAME:  $(grep '^NEXTERM_ADMIN_USERNAME=' "$ENV_FILE" | cut -d= -f2)"
+  log "  NEXTERM_ADMIN_PASSWORD:  $(grep '^NEXTERM_ADMIN_PASSWORD=' "$ENV_FILE" | cut -d= -f2)"
+  log "  NEXTERM_ENCRYPTION_KEY:  $(grep '^NEXTERM_ENCRYPTION_KEY=' "$ENV_FILE" | cut -d= -f2)"
   log "  CRON_SECRET:          $(grep '^CRON_SECRET=' "$ENV_FILE" | cut -d= -f2)"

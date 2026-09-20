@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import type { ConsoleDialogState, VmDetails, VmTemplate } from './types';
 import { EMPTY_CONSOLE_DIALOG } from './types';
+import { launchNextermConsole, normalizeNextermBaseUrl } from '@/lib/nexterm-launch';
 
 type RefreshFn = (silent?: boolean) => Promise<void>;
 
@@ -77,15 +78,27 @@ export function useConsoleConnect() {
       const data = await res.json();
 
       if (res.ok && data.identifier && data.authToken) {
-        const connectionStr = `${data.identifier}\0c\0${data.dataSource}`;
-        const clientId      = btoa(connectionStr).replace(/=+$/, '');
-        let baseUrl         = (data.url || '').replace(/[\/#]+$/, '');
-        if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-          baseUrl = `http://${baseUrl}`;
+        const baseUrl = normalizeNextermBaseUrl(data.url);
+
+        if (data.provider === 'nexterm') {
+          // Nexterm is not Guacamole: it has no `#/client/<id>?token=` route, so
+          // the Guacamole URL below would only land the instructor on Nexterm's
+          // login page. See src/lib/nexterm-launch.ts for why this takes two
+          // navigations and why the second one cannot be a fixed short timer.
+          launchNextermConsole({
+            baseUrl,
+            sessionToken: data.authToken,
+            entryId: data.identifier,
+          });
+          closeConsoleDialog();
+          toast.success('Opening the console...');
+        } else {
+          const connectionStr = `${data.identifier}\0c\0${data.dataSource}`;
+          const clientId      = btoa(connectionStr).replace(/=+$/, '');
+          window.open(`${baseUrl}/#/client/${clientId}?token=${data.authToken}`, '_blank', 'noopener,noreferrer');
+          closeConsoleDialog();
+          toast.success('Opening console...');
         }
-        window.open(`${baseUrl}/#/client/${clientId}?token=${data.authToken}`, '_blank', 'noopener,noreferrer');
-        closeConsoleDialog();
-        toast.success('Opening console...');
       } else {
         toast.error(data.error || 'Failed to open console');
       }

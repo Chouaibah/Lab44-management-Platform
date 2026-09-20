@@ -51,6 +51,68 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "You can only access your own VM." }, { status: 403 });
     }
 
+    // ── 2b. Nexterm provider ─────────────────────────────────────────────────
+    // When remote_provider=nexterm this endpoint serves Nexterm instead of
+    // Guacamole. The response carries a *session token* for the student, which
+    // the frontend puts in the URL (`?token=`) so Nexterm logs them in with no
+    // credentials typed — the equivalent of Guacamole's client token.
+    const settings = await getSettingsMap();
+    if ((settings.remote_provider || "guacamole") === "nexterm") {
+      const student = await db.student.findUnique({ where: { id: vmRequest.studentDbId } });
+      if (!student) {
+        return NextResponse.json({ error: "Student not found." }, { status: 404 });
+      }
+
+      // Prefer a freshly discovered IP, falling back to the stored one.
+      let ip = vmRequest.vmIp || "";
+      if (vmRequest.vmUuid) {
+        try {
+          const dynamicIp = await getVMIPAddress(vmRequest.vmUuid);
+          if (dynamicIp && dynamicIp !== "127.0.0.1") ip = dynamicIp;
+        } catch { /* keep the stored IP */ }
+      }
+      if (!ip) {
+        return NextResponse.json(
+          { error: "This VM has no IP address yet. Start it and try again." },
+          { status: 400 },
+        );
+      }
+
+      const osUser = customOsUser || (desiredProtocol === "ssh" ? "xen" : "lab");
+      const osPass = customOsPass ?? "";
+
+      const { provisionNextermConsole } = await import("@/lib/nexterm");
+      const result = await provisionNextermConsole({
+        vmRequestId: vmRequest.id,
+        ownerFirstName: student.firstName,
+        ownerLastName: student.lastName,
+        ownerKey: student.studentId,
+        protocol: desiredProtocol,
+        ip,
+        entryName: vmRequest.vmName || `${student.firstName}-${student.lastName}-${vmRequest.id}`,
+        vmUser: osUser,
+        vmPass: osPass,
+        existingEntryId: vmRequest.nextermEntryId,
+        existingIdentityId: vmRequest.nextermIdentityId,
+      });
+
+      if (!result.ok) {
+        return NextResponse.json(
+          { error: result.error || "Failed to prepare the Nexterm console." },
+          { status: 502 },
+        );
+      }
+
+      return NextResponse.json({
+        // `provider` tells the frontend to use Nexterm's two-step launch.
+        provider: "nexterm",
+        identifier: String(result.entryId),
+        url: result.publicUrl,
+        authToken: result.sessionToken,
+        username: result.username,
+      });
+    }
+
     // ── 3. Guacamole settings ─────────────────────────────────────────────────
     const map = await getSettingsMap();
     const guacUrl = map.guacamole_url;

@@ -49,7 +49,6 @@ function SortIcon({ field, currentField, direction }: { field: string; currentFi
 interface InstructorFormData {
   username: string;
   displayName: string;
-  email: string;
   password: string;
   labId: number | '';
   labIds: number[];
@@ -58,7 +57,6 @@ interface InstructorFormData {
 const emptyInstructorForm: InstructorFormData = {
   username: '',
   displayName: '',
-  email: '',
   password: '',
   labId: '',
   labIds: [],
@@ -109,8 +107,7 @@ export default function AdminInstructorsView() {
       const q = searchQuery.toLowerCase();
       result = result.filter(i =>
         i.displayName.toLowerCase().includes(q) ||
-        i.username.toLowerCase().includes(q) ||
-        (i.email || '').toLowerCase().includes(q)
+        i.username.toLowerCase().includes(q)
       );
     }
     result.sort((a, b) => {
@@ -150,7 +147,6 @@ export default function AdminInstructorsView() {
         body: JSON.stringify({
           username: formData.username,
           displayName: formData.displayName,
-          email: formData.email || null,
           password: formData.password,
           labId: formData.labId,
           labIds: formData.labIds,
@@ -175,7 +171,6 @@ export default function AdminInstructorsView() {
     setFormData({
       username: instructor.username,
       displayName: instructor.displayName,
-      email: instructor.email || '',
       password: '',
       labId: instructor.labId,
       labIds: allLabIds,
@@ -189,7 +184,6 @@ export default function AdminInstructorsView() {
     try {
       const updateBody: Record<string, unknown> = {
         displayName: formData.displayName,
-        email: formData.email || null,
         labIds: formData.labIds,
       };
       if (formData.labId) updateBody.labId = formData.labId;
@@ -319,17 +313,6 @@ export default function AdminInstructorsView() {
             />
           </div>
 
-          {/* Email */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Email</Label>
-            <Input
-              type="email"
-              value={formData.email}
-              onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-              placeholder="e.g. jdoe@usthb.edu.dz"
-            />
-          </div>
-
           {/* Password (only for create) */}
           {!isEdit && (
             <div className="space-y-1.5">
@@ -449,7 +432,7 @@ export default function AdminInstructorsView() {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search instructors by name, username, or email..."
+            placeholder="Search instructors by name or username..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9 h-9"
@@ -494,7 +477,6 @@ export default function AdminInstructorsView() {
                         Username <SortIcon field="username" currentField={sortField} direction={sortDir} />
                       </button>
                     </TableHead>
-                    <TableHead>Email</TableHead>
                     <TableHead>Assigned Labs</TableHead>
                     <TableHead className="pr-4">Actions</TableHead>
                   </TableRow>
@@ -522,13 +504,6 @@ export default function AdminInstructorsView() {
                         </TableCell>
                         <TableCell>
                           <span className="text-sm font-mono text-muted-foreground">{instructor.username}</span>
-                        </TableCell>
-                        <TableCell>
-                          {instructor.email ? (
-                            <span className="text-xs text-muted-foreground">{instructor.email}</span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-1">

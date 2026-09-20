@@ -69,8 +69,6 @@ export async function PATCH(
     // Only admin can update other fields
     if (session.role === "admin") {
       if (typeof data.displayName === "string") updateData.displayName = data.displayName.trim();
-      if (typeof data.email === "string") updateData.email = data.email.trim() || null;
-      if (data.email === null) updateData.email = null;
       if (typeof data.password === "string" && data.password.length > 0) {
         // Always hash passwords before storing — never store plaintext
         const { hashPassword } = await import("@/lib/auth");

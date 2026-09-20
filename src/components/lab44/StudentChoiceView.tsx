@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { useLab44Store } from '@/store/lab44';
 import type { AppView, ResourceLink, SousGroupe } from '@/types';
+import { SessionLiveCard } from '@/components/lab44/SessionLiveCard';
 
 import {
   Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle,
@@ -478,39 +479,19 @@ if (loading) {
         </motion.div>
       )}
 
-      {/* ─── Attendance Session Alert ──────────────────────────────────── */}
+      {/* ─── Attendance Session Live (instructor "Session Live" style) ──── */}
       {attendanceSessionOpen && (
-        <motion.div {...fadeSlide} transition={{ delay: 0.01 }} className="mb-6">
-          <Card
-            className="shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+        <motion.div {...fadeSlide} transition={{ delay: 0.01 }}>
+          <SessionLiveCard
+            date={attendanceSessionDate}
+            subtitle={
+              <>
+                Session open for <span className="font-mono font-medium">{attendanceSessionDate}</span> &mdash; tap to mark
+                yourself present
+              </>
+            }
             onClick={() => setView('student-attendance')}
-          >
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="relative">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-100 dark:bg-cyan-900/30">
-                    <CalendarCheck className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
-                  </div>
-                  <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" style={{ animationDuration: '1.5s' }} />
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500" />
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-bold text-cyan-700 dark:text-cyan-400">Attendance Session Open</p>
-                    <Badge className="bg-cyan-100 text-cyan-700 border-cyan-200 dark:bg-cyan-900/40 dark:text-cyan-400 dark:border-cyan-800 text-[9px] px-1.5 py-0 animate-pulse">
-                      LIVE
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Mark yourself present for <span className="font-mono font-medium">{attendanceSessionDate}</span> — tap to go
-                  </p>
-                </div>
-                <ArrowRight className="h-4 w-4 text-cyan-500 shrink-0" />
-              </div>
-            </CardContent>
-          </Card>
+          />
         </motion.div>
       )}
 

@@ -341,15 +341,17 @@ export async function addOwnCloudUserToGroup(
  * If the user already exists, this is a no-op for step 2 but steps 3 and 4
  * are still applied (so existing instructors converge to the correct state).
  *
- * Returns `{ ok: true }` on success, or `{ ok: false, error }` with a
- * human-readable error message.
+ * Returns `{ ok: true, created }` on success — `created` is false when the
+ * account already existed, in which case the supplied `password` was NOT
+ * applied (callers must not record it as the account's password) — or
+ * `{ ok: false, error }` with a human-readable error message.
  */
 export async function createOwnCloudUser(
   username: string,
   password: string,
   displayName: string,
   email?: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; created?: boolean }> {
   const config = await getOwnCloudConfig();
   if (!config) {
     return { ok: false, error: "OwnCloud is not configured." };
@@ -447,7 +449,7 @@ export async function deleteOwnCloudUser(username: string): Promise<{ ok: boolea
   const result = await ocsRequest(config, "DELETE", `cloud/users/${safeUser}`);
   // 998 = user not found in OCS — treat as success.
   if (result.ok || result.status === 998 || result.status === 404 || result.status === 101) {
-    return { ok: true };
+    return { ok: true, created: !exists };
   }
   return {
     ok: false,

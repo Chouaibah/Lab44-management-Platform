@@ -134,7 +134,15 @@ export async function approveVMRequest(opts: ApproveOptions) {
   // on-demand when the student first connects via the auth/student route.
   const effectiveIp = (updateData.vmIp as string) || "";
 
-  if (guacUrl && guacRootUser && guacRootPass && effectiveIp) {
+  // With remote_provider=nexterm there is no Guacamole to talk to — and because
+  // the app is always given a guacamole_url by compose, this block would
+  // otherwise spend time failing to reach a container that isn't running.
+  // Nexterm needs nothing at approval time: its account, identity and entry are
+  // created on demand when the console is opened.
+  const remoteProvider = map.remote_provider || "guacamole";
+  if (remoteProvider === "nexterm") {
+    console.log("[vm-approval] remote_provider=nexterm — skipping Guacamole provisioning.");
+  } else if (guacUrl && guacRootUser && guacRootPass && effectiveIp) {
     try {
       // 1. Obtain an admin token
       const { token: adminToken, dataSource, baseUrl } = await getGuacamoleToken(

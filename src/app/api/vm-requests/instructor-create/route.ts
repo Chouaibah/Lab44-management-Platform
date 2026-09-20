@@ -42,7 +42,12 @@ export async function POST(request: Request) {
     // 1. Create VM request record (auto-approved)
     const vmRequest = await db.vMRequest.create({
       data: {
-        studentDbId: instructor.id,
+        // NULL on purpose. `student_db_id` has a foreign key to `students`, and
+        // this VM belongs to an *instructor* — writing instructor.id here used to
+        // violate `vm_requests_student_db_id_fkey` (Prisma P2003) unless a student
+        // happened to share that numeric id. The instructor's identity is carried
+        // by `studentId` as "ins-<id>" and by the display name below.
+        studentDbId: null,
         studentName: `${instructor.displayName || instructor.username} (Instructor)`,
         studentId: `ins-${instructor.id}`,
         labId: effectiveLabId ? parseInt(String(effectiveLabId)) : null,
@@ -107,7 +112,12 @@ export async function POST(request: Request) {
 
     // 3. Set up Guacamole access
     const map = await getSettingsMap();
-    const guacUrl = map.guacamole_url;
+    // Under remote_provider=nexterm the installer does not start the Guacamole
+    // containers at all, so calling them here would only stall on a dead host
+    // before dropping into the non-fatal catch below. The Nexterm entry is
+    // created lazily on the first connect instead.
+    const usingGuacamole = (map.remote_provider || "guacamole") !== "nexterm";
+    const guacUrl = usingGuacamole ? map.guacamole_url : "";
     const guacRootUser = map.guacamole_root_username;
     const guacRootPass = map.guacamole_root_password;
 

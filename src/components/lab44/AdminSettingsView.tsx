@@ -24,7 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Cog, ChevronLeft, Lock, RefreshCw, Save,
   Server, CheckCircle2, XCircle, Globe, UserPlus,
-  AlertTriangle, Trash2,
+  AlertTriangle, Trash2, Loader2,
 } from 'lucide-react';
 
 import { fadeSlide, BreadcrumbNav } from '@/lib/helpers';
@@ -140,12 +140,79 @@ export default function AdminSettingsView() {
   const [ocLoading, setOcLoading] = useState(false);
   const [ocTestResult, setOcTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  // ── Remote-console provider ────────────────────────────────────────────────
+  // Chosen at install time (./scripts/install.sh --remote=…). The settings page
+  // shows either the Guacamole card or the Nexterm card — never both.
+  const [remoteProvider, setRemoteProvider] = useState<'guacamole' | 'nexterm'>('guacamole');
+
+  // Nexterm settings
+  const [ntUrl, setNtUrl] = useState('');
+  const [ntPublicUrl, setNtPublicUrl] = useState('');
+  const [ntUser, setNtUser] = useState('');
+  const [ntPw, setNtPw] = useState('');
+  const [ntPwSet, setNtPwSet] = useState(false);
+  const [ntLoading, setNtLoading] = useState(false);
+  const [ntConnected, setNtConnected] = useState<boolean | null>(null);
+  const [ntTestResult, setNtTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const handleTestNexterm = async () => {
+    setNtLoading(true);
+    setNtTestResult(null);
+    try {
+      // Save first, so the test uses exactly what is on screen.
+      await fetch('/api/nexterm', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: ntUrl.trim(),
+          publicUrl: ntPublicUrl.trim(),
+          adminUsername: ntUser.trim(),
+          adminPassword: ntPw.length > 0 ? ntPw : undefined,
+        }),
+      });
+      const res = await fetch('/api/nexterm', { method: 'POST' });
+      const data = await res.json();
+      setNtTestResult({ ok: !!data.ok, message: data.message || data.error || 'Unknown error' });
+      setNtConnected(!!data.ok);
+      if (data.ok) setNtPwSet(ntPwSet || ntPw.length > 0);
+    } catch {
+      setNtTestResult({ ok: false, message: 'Connection error' });
+    }
+    setNtLoading(false);
+  };
+
+  const handleSaveNexterm = async () => {
+    if (!ntUrl.trim()) { toast.error('Nexterm server URL is required'); return; }
+    setNtLoading(true);
+    try {
+      const res = await fetch('/api/nexterm', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: ntUrl.trim(),
+          publicUrl: ntPublicUrl.trim(),
+          adminUsername: ntUser.trim(),
+          adminPassword: ntPw.length > 0 ? ntPw : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) { toast.error(data.error || 'Failed to save'); setNtLoading(false); return; }
+      setNtPwSet(ntPwSet || ntPw.length > 0);
+      setNtPw('');
+      toast.success('Nexterm settings saved');
+    } catch { toast.error('Connection error'); }
+    setNtLoading(false);
+  };
+
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch('/api/settings');
         const data = await res.json();
         setSettings(data);
+        // Which remote-console backend this install uses — decides whether the
+        // Guacamole card or the Nexterm card is shown below.
+        setRemoteProvider(data.remote_provider === 'nexterm' ? 'nexterm' : 'guacamole');
       } catch { toast.error('Failed to load settings'); }
       // Load XCP-ng settings
       try {
@@ -164,6 +231,15 @@ export default function AdminSettingsView() {
         setGuacUser(guacData.guacamole_root_username || '');
         setGuacPwSet(guacData.guacamole_root_password_set || false);
         setGuacConnected(guacData.connected || false);
+      } catch { /* ignore */ }
+      // Load Nexterm settings (used instead of Guacamole when it is the provider)
+      try {
+        const ntRes = await fetch('/api/nexterm');
+        const ntData = await ntRes.json();
+        setNtUrl(ntData.nexterm_url || '');
+        setNtPublicUrl(ntData.nexterm_public_url || '');
+        setNtUser(ntData.nexterm_admin_username || '');
+        setNtPwSet(ntData.nexterm_admin_password_set || false);
       } catch { /* ignore */ }
       // Load OwnCloud settings
       try {
@@ -569,7 +645,9 @@ export default function AdminSettingsView() {
     </CardFooter>
     </Card>
 
-    {/* Guacamole Gateway */}
+    {/* Remote-console gateway — only the provider chosen at install time is
+        shown. Switching provider is done with: ./scripts/install.sh --remote=… */}
+    {remoteProvider !== 'nexterm' && (
     <Card className="shadow-sm hover:shadow-md transition-shadow">
     <CardHeader className="pb-3">
     <div className="flex items-center justify-between">
@@ -619,8 +697,65 @@ export default function AdminSettingsView() {
     </Button>
     </CardFooter>
     </Card>
+    )}
 
-    {/* OwnCloud */}
+    {/* Nexterm — shown instead of the Guacamole card when this install was set
+        up with ./scripts/install.sh --remote=nexterm */}
+    {remoteProvider === 'nexterm' && (
+    <Card className="shadow-sm hover:shadow-md transition-shadow">
+    <CardHeader className="pb-3">
+    <div className="flex items-center justify-between">
+    <CardTitle className="text-base flex items-center gap-2">
+    <Globe className="h-4 w-4" /> Nexterm Gateway
+    </CardTitle>
+    {ntConnected === true && <Badge variant="outline" className="text-emerald-600 border-emerald-300">Connected</Badge>}
+    </div>
+    <CardDescription>
+      Remote console backend for VM access; replaces Guacamole on this install
+    </CardDescription>
+    </CardHeader>
+    <CardContent className="space-y-4">
+    <div className="space-y-1.5">
+    <Label className="text-xs">Server URL (used by the Lab44 server)</Label>
+    <Input value={ntUrl} onChange={(e) => setNtUrl(e.target.value)} placeholder="http://nexterm:6989" />
+    </div>
+    <div className="space-y-1.5">
+    <Label className="text-xs">Public URL (opened in the student&apos;s browser)</Label>
+    <Input value={ntPublicUrl} onChange={(e) => setNtPublicUrl(e.target.value)} placeholder="https://nexterm.example.com" />
+    <p className="text-[11px] text-muted-foreground">
+      Students are sent here to open their console. They are logged in
+      automatically and their VM opens without typing any credentials.
+    </p>
+    </div>
+    <div className="space-y-1.5">
+    <Label className="text-xs">Admin Username</Label>
+    <Input value={ntUser} onChange={(e) => setNtUser(e.target.value)} placeholder="lab44admin" />
+    <p className="text-[11px] text-muted-foreground">
+      3–15 characters, letters and digits only. On a fresh Nexterm this account is
+      created automatically the first time it is used, as its administrator.
+    </p>
+    </div>
+    <div className="space-y-1.5">
+    <Label className="text-xs">Admin Password {ntPwSet && <span className="text-muted-foreground">(stored — leave blank to keep)</span>}</Label>
+    <Input type="password" value={ntPw} onChange={(e) => setNtPw(e.target.value)} placeholder={ntPwSet ? '••••••••' : 'Admin password'} />
+    </div>
+    {ntTestResult && (
+      <div className={`rounded-md px-3 py-2 text-xs ${ntTestResult.ok ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400' : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'}`}>
+        {ntTestResult.message}
+      </div>
+    )}
+    </CardContent>
+    <CardFooter className="flex gap-2">
+    <Button variant="outline" size="sm" onClick={handleTestNexterm} disabled={ntLoading}>
+      {ntLoading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null} Test Connection
+    </Button>
+    <Button size="sm" onClick={handleSaveNexterm} disabled={ntLoading}>
+      Save Nexterm Settings
+    </Button>
+    </CardFooter>
+    </Card>
+    )}
+
     <Card className="shadow-sm hover:shadow-md transition-shadow">
     <CardHeader className="pb-3">
     <CardTitle className="text-base flex items-center gap-2">

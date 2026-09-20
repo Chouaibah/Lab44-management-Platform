@@ -46,6 +46,105 @@ export async function GET(
       return NextResponse.json({ error: "VM request is not approved." }, { status: 400 });
     }
 
+    // ── Nexterm provider ─────────────────────────────────────────────────────
+    // Same entry point, different backend. Nexterm has no per-entry ACL: an
+    // entry is visible only to the account whose token created it. So the owner
+    // resolved here decides everything:
+    //   • student request        → the student's own account (instructor opens it
+    //                              by impersonating that student);
+    //   • instructor-owned request (`studentDbId` is null, `studentId` is
+    //                              "ins-<id>") → an account for that instructor.
+    const providerSettings = await getSettingsMap();
+    if ((providerSettings.remote_provider || "guacamole") === "nexterm") {
+      let owner: { firstName: string; lastName: string; key: string; label: string } | null = null;
+
+      if (request.studentDbId) {
+        const student = await db.student.findUnique({ where: { id: request.studentDbId } });
+        if (student) {
+          owner = {
+            firstName: student.firstName,
+            lastName: student.lastName,
+            key: student.studentId,
+            label: `${student.firstName}-${student.lastName}`,
+          };
+        }
+      } else if (session.role === "instructor") {
+        const instructor = await db.instructor.findUnique({ where: { id: session.userId } });
+        if (instructor) {
+          // Instructor rows only carry a display name ("Dr. Jane Doe"); Nexterm
+          // wants a first and a last name, so split on whitespace.
+          const display = (instructor.displayName || instructor.username || "").trim();
+          const [first, ...rest] = display.split(/\s+/).filter(Boolean);
+          owner = {
+            firstName: first || instructor.username,
+            lastName: rest.join(" ") || "-",
+            // "ins<id>" keeps instructor accounts from colliding with student
+            // numbers, which are what students are keyed by.
+            key: `ins${instructor.id}`,
+            label: display || instructor.username,
+          };
+        }
+      }
+
+      if (!owner) {
+        return NextResponse.json(
+          {
+            error:
+              session.role === "instructor" || session.role === "admin"
+                ? "This VM request is not linked to a student, and no matching instructor account was found for it."
+                : "This VM request is not linked to a student account, so a Nexterm console cannot be opened for it.",
+          },
+          { status: 400 },
+        );
+      }
+
+      let ip = request.vmIp || "";
+      if (request.vmUuid) {
+        try {
+          const dynamicIp = await getVMIPAddress(request.vmUuid);
+          if (dynamicIp && dynamicIp !== "127.0.0.1") ip = dynamicIp;
+        } catch { /* keep the stored IP */ }
+      }
+      if (!ip) {
+        return NextResponse.json({ error: "VM has no IP address. Start the VM first." }, { status: 400 });
+      }
+
+      const protocol: "rdp" | "ssh" =
+        (protocolOverride || request.accessProtocol || request.guacProtocol || "rdp").toLowerCase() === "ssh"
+          ? "ssh"
+          : "rdp";
+
+      const { provisionNextermConsole } = await import("@/lib/nexterm");
+      const result = await provisionNextermConsole({
+        vmRequestId: request.id,
+        ownerFirstName: owner.firstName,
+        ownerLastName: owner.lastName,
+        ownerKey: owner.key,
+        protocol,
+        ip,
+        entryName: request.vmName || `${owner.label}-${request.id}`,
+        vmUser: vmUserOverride || (protocol === "ssh" ? "xen" : "lab"),
+        vmPass: vmPassOverride ?? "",
+        existingEntryId: request.nextermEntryId,
+        existingIdentityId: request.nextermIdentityId,
+      });
+
+      if (!result.ok) {
+        return NextResponse.json(
+          { error: result.error || "Failed to prepare the Nexterm console." },
+          { status: 502 },
+        );
+      }
+
+      return NextResponse.json({
+        provider: "nexterm",
+        identifier: String(result.entryId),
+        url: result.publicUrl,
+        authToken: result.sessionToken,
+        username: result.username,
+      });
+    }
+
     const map = await getSettingsMap();
     const guacUrl = map.guacamole_url;
     const guacRootUser = map.guacamole_root_username;
